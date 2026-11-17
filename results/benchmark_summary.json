@@ -1,0 +1,157 @@
+{
+  "project": "HigherOrder-Simplicial-Lab",
+  "runtime_seconds": 416.41,
+  "helmholtz_hodge": {
+    "complex_shape": {
+      "N0": 103,
+      "N1": 244,
+      "N2": 140
+    },
+    "betti_numbers": {
+      "beta_0": 1,
+      "beta_1": 2
+    },
+    "boundary_identity_error": 0.0,
+    "energies": {
+      "total": 3.4249999999999976,
+      "grad": 1.3224999999999962,
+      "curl": 1.0000000000000029,
+      "harm": 1.1025000000000003
+    },
+    "energy_fractions": {
+      "grad": 0.38613138686131304,
+      "curl": 0.29197080291970906,
+      "harm": 0.3218978102189784
+    },
+    "orthogonality_errors": {
+      "grad_curl": 4.336808689942018e-18,
+      "grad_harm": 5.770123961967855e-16,
+      "curl_harm": 1.404800754889468e-15,
+      "max": 1.404800754889468e-15
+    },
+    "parseval_error": 1.3322676295501878e-15,
+    "kernel_residuals": {
+      "curl_of_grad_linf": 1.3877787807814457e-17,
+      "div_of_curl_linf": 4.163336342344337e-17,
+      "l1_of_harm_linf": 4.850286838831153e-15
+    }
+  },
+  "simplicial_contagion": {
+    "rsc_nodes": 180,
+    "mean_k1": 17.444444444444443,
+    "mean_k2": 6.016666666666667,
+    "lambda_2_bistable": 2.8,
+    "lambda_2_continuous": 0.8,
+    "critical_lambda_1_forward": 1.0,
+    "critical_lambda_1_backward_analytical": 0.5466401061363024,
+    "max_hysteresis_gap_bistable": 0.6139332234770216,
+    "bistable_lambda_1_at_max_gap": 0.8785714285714286,
+    "max_hysteresis_gap_continuous": 0.03357581599504977,
+    "bistable_separatrix_at_078": 0.13368264178124534,
+    "bistable_endemic_at_078": 0.587745929647326
+  },
+  "hodge_snn_benchmark": {
+    "orientation_equivariance_max_error_float64": 0.0,
+    "eta_solenoidal_grid": [
+      0.0,
+      0.25,
+      0.5,
+      0.75,
+      1.0
+    ],
+    "imputation_by_model": {
+      "NodeGCN": {
+        "r2": [
+          0.8464558061574935,
+          0.6481498215429013,
+          0.49924713904158846,
+          0.406680594182077,
+          0.4715837011226838
+        ],
+        "mse": [
+          0.15385572612285614,
+          0.3511435091495514,
+          0.49877414107322693,
+          0.5902767777442932,
+          0.5261913537979126
+        ]
+      },
+      "EdgeMLP": {
+        "r2": [
+          -0.00043447080931957593,
+          -0.0003366675585541046,
+          -0.00022949064267607788,
+          -0.0001190449087482559,
+          -3.591400605795769e-07
+        ],
+        "mse": [
+          1.0024642944335938,
+          0.9983275532722473,
+          0.9962770938873291,
+          0.9949902892112732,
+          0.9957897663116455
+        ]
+      },
+      "Isotropic-L1-GCN": {
+        "r2": [
+          0.6570286598455226,
+          0.5539405991093869,
+          0.47751156264816286,
+          0.4289338441020947,
+          0.38699969245639476
+        ],
+        "mse": [
+          0.343667209148407,
+          0.4451635181903839,
+          0.5204238295555115,
+          0.5681376457214355,
+          0.6104192137718201
+        ]
+      },
+      "HodgeSimplicialNN": {
+        "r2": [
+          0.9738112369474357,
+          0.9447695324818198,
+          0.9285941660546417,
+          0.911311460603744,
+          0.9606444220700187
+        ],
+        "mse": [
+          0.02624189853668213,
+          0.05511954054236412,
+          0.07112367451190948,
+          0.08823373168706894,
+          0.03918986767530441
+        ]
+      }
+    },
+    "homotopy_accuracy_mean": {
+      "NodeGCN": 0.22777778406937918,
+      "EdgeMLP": 0.2611111104488373,
+      "Isotropic-L1-GCN": 0.28333333134651184,
+      "HodgeSimplicialNN": 1.0
+    },
+    "homotopy_accuracy_std": {
+      "NodeGCN": 0.028327891316988704,
+      "EdgeMLP": 0.0039283813091549,
+      "Isotropic-L1-GCN": 0.02041241938989202,
+      "HodgeSimplicialNN": 0.0
+    }
+  },
+  "hodge_spectrum_filtration": {
+    "initial_1skeleton_beta_1": 142,
+    "punctured_mesh_beta_1": 2,
+    "after_cavity_a_cap_beta_1": 1,
+    "after_cavity_b_cap_beta_1": 0,
+    "punctured_spectral_gap": 0.062092362754951315,
+    "fully_sealed_spectral_gap": 0.07536696218587649
+  },
+  "trimolecular_reaction_complex": {
+    "N0": 12,
+    "N1": 33,
+    "N2": 8,
+    "beta_0": 1,
+    "beta_1": 14,
+    "boundary_identity_error": 0.0
+  }
+}

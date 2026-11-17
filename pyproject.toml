@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "higherorder-simplicial-lab"
+version = "0.1.0"
+description = "Hodge-Laplacian Spectral Topology, Helmholtz-Hodge Decomposition, Simplicial Neural Networks & Higher-Order Phase Transitions"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "HigherOrder-Simplicial-Lab Contributors"}
+]
+keywords = [
+    "simplicial-complexes",
+    "hodge-laplacian",
+    "helmholtz-hodge-decomposition",
+    "topological-deep-learning",
+    "simplicial-neural-networks",
+    "higher-order-networks",
+    "phase-transitions",
+]
+dependencies = [
+    "numpy>=1.23.0",
+    "scipy>=1.9.0",
+    "torch>=2.0.0",
+    "matplotlib>=3.6.0",
+    "pandas>=1.5.0",
+    "streamlit>=1.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["simplicial_lab*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"

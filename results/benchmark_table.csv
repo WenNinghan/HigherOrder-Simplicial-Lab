@@ -1,0 +1,5 @@
+Model,Imputation_R2_GradOnly_eta0,Imputation_R2_Balanced_eta50,Imputation_R2_MixedSolenoidal_eta75,Imputation_R2_PureSolenoidal_eta100,Imputation_MSE_MixedSolenoidal_eta75,Homotopy_Acc_Mean,Homotopy_Acc_Std
+NodeGCN,0.8465,0.4992,0.4067,0.4716,0.5903,0.2278,0.0283
+EdgeMLP,-0.0004,-0.0002,-0.0001,-0.0,0.995,0.2611,0.0039
+Isotropic-L1-GCN,0.657,0.4775,0.4289,0.387,0.5681,0.2833,0.0204
+HodgeSimplicialNN,0.9738,0.9286,0.9113,0.9606,0.0882,1.0,0.0
