@@ -1,11 +1,13 @@
-# HigherOrder-Simplicial-Lab: Hodge-Laplacian Spectral Topology, Helmholtz-Hodge Decomposition, Simplicial Neural Networks & Higher-Order Phase Transitions
+# HigherOrder-Simplicial-Lab
 
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)](https://www.python.org/)
 [![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C.svg)](https://pytorch.org/)
 [![Tests](https://img.shields.io/badge/tests-pytest-blue.svg)](tests/test_simplicial.py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-0f766e.svg)](LICENSE)
 
-**HigherOrder-Simplicial-Lab** is a self-contained research laboratory at the intersection of **Algebraic Topology**, **Discrete Exterior Calculus (DEC)**, **Topological / Geometric Deep Learning**, and **Higher-Order Network Dynamics**. Unlike pairwise graph frameworks restricted to 0-simplex node signals and 0-Laplacian ($`L_{0}`$) diffusion, this repository builds an oriented 2-simplicial complex engine from first principles—unifying exact **1-Hodge Laplacian spectral topology**, **orthogonal Helmholtz-Hodge flow decomposition**, **orientation-equivariant Hodge Simplicial Neural Networks (`HodgeSimplicialNN`)**, and **explosive higher-order contagion hysteresis**.
+How much of loop recognition transfers to a new mesh? On three unseen two-hole meshes, a nearest-centroid classifier using two harmonic coordinates recognized **480/480 synthetic loops**. A Hodge neural network averaged **77.50%** on those same loops. The classes encode signed windings around the holes. Aligning the coordinates requires the known hole correspondence, and harmonic projection removes the simulated gradient and curl noise. [Per-mesh scores and predictions](results/mesh_transfer.json)
+
+The repository also evaluates missing-edge flow reconstruction, Hodge decomposition and higher-order dynamics on oriented simplicial complexes.
 
 ---
 
