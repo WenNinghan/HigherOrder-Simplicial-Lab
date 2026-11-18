@@ -1,4 +1,4 @@
-"""Automated Benchmark Suite & Publication Figure Generator (240 DPI).
+"""Automated Benchmark Suite & Top-Journal Publication Figure Generator (300 DPI).
 
 Executes all topological, dynamical, and geometric deep learning benchmarks and writes:
 - ``results/benchmark_summary.json``
@@ -12,15 +12,20 @@ Executes all topological, dynamical, and geometric deep learning benchmarks and 
 from __future__ import annotations
 
 import json
+import platform
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+if hasattr(platform, "_wmi"):
+    platform._wmi = None
+
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.patches as mpatches
+from matplotlib.patches import Patch
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection, PolyCollection
 import numpy as np
@@ -52,22 +57,157 @@ from simplicial_lab import (
 
 
 def _setup_plot_style() -> None:
+    """Configure SIAM Review / Nature Communications 300-DPI bold serif & STIX math style."""
     plt.rcParams.update(
         {
-            "font.family": "DejaVu Sans",
-            "font.size": 10,
-            "axes.titlesize": 11.5,
+            "font.family": "serif",
+            "font.serif": ["Times New Roman", "STIXGeneral", "DejaVu Serif"],
+            "font.weight": "bold",
+            "mathtext.fontset": "stix",
+            "font.size": 10.2,
+            "axes.titlesize": 11.2,
             "axes.titleweight": "bold",
             "axes.labelsize": 10.5,
-            "xtick.labelsize": 9.2,
-            "ytick.labelsize": 9.2,
-            "legend.fontsize": 8.8,
-            "figure.titlesize": 13.5,
+            "axes.labelweight": "bold",
+            "xtick.labelsize": 9.3,
+            "ytick.labelsize": 9.3,
+            "legend.fontsize": 8.4,
+            "figure.titlesize": 12.6,
             "figure.titleweight": "bold",
-            "axes.spines.top": False,
-            "axes.spines.right": False,
+            "figure.facecolor": "#FFFFFF",
+            "axes.facecolor": "#FFFFFF",
+            "savefig.facecolor": "#FFFFFF",
+            "axes.edgecolor": "#111111",
+            "axes.linewidth": 1.30,
+            "axes.spines.top": True,
+            "axes.spines.right": True,
+            "axes.spines.bottom": True,
+            "axes.spines.left": True,
+            "figure.dpi": 150,
+            "savefig.dpi": 300,
         }
     )
+
+
+def _sci_tex(val: float) -> str:
+    """Format floating-point value as clean STIX scientific notation a.bc x 10^{exp}."""
+    if val == 0.0:
+        return "0"
+    mant_str, exp_str = f"{val:.2e}".split("e")
+    exp_int = int(exp_str)
+    return f"{mant_str} \\times 10^{{{exp_int}}}"
+
+
+def _style_continuous_axes(ax: plt.Axes) -> None:
+    """Apply 4-sided closed #111111 frame, 4-sided inward ticks, and subtle dotted grid."""
+    ax.set_facecolor("#FFFFFF")
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_edgecolor("#111111")
+        spine.set_linewidth(1.30)
+    ax.tick_params(
+        axis="both",
+        which="major",
+        direction="in",
+        top=True,
+        right=True,
+        bottom=True,
+        left=True,
+        length=4.5,
+        width=1.2,
+        color="#111111",
+        labelcolor="#111111",
+    )
+    ax.tick_params(
+        axis="both",
+        which="minor",
+        direction="in",
+        top=True,
+        right=True,
+        bottom=True,
+        left=True,
+        length=2.5,
+        width=0.9,
+        color="#111111",
+    )
+    ax.grid(True, which="major", linestyle=":", linewidth=0.70, alpha=0.35, color="#94A3B8")
+
+
+def _style_categorical_axes(ax: plt.Axes) -> None:
+    """Apply 4-sided closed #111111 frame, inward y-ticks, and outward bottom x-ticks."""
+    ax.set_facecolor("#FFFFFF")
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_edgecolor("#111111")
+        spine.set_linewidth(1.30)
+    ax.tick_params(
+        axis="y",
+        which="major",
+        direction="in",
+        left=True,
+        right=True,
+        length=4.5,
+        width=1.2,
+        color="#111111",
+        labelcolor="#111111",
+    )
+    ax.tick_params(
+        axis="x",
+        which="major",
+        direction="out",
+        bottom=True,
+        top=False,
+        length=4.2,
+        width=1.2,
+        color="#111111",
+        labelcolor="#111111",
+    )
+    ax.grid(True, axis="y", linestyle=":", linewidth=0.70, alpha=0.35, color="#94A3B8")
+    ax.grid(False, axis="x")
+
+
+def _finalize_journal_figure(fig: plt.Figure) -> None:
+    """Enforce bold Times New Roman across every axis, colorbar, tick, annotation, and legend."""
+    fig.canvas.draw()
+    for text_obj in fig.texts:
+        text_obj.set_fontfamily("Times New Roman")
+        text_obj.set_fontweight("bold")
+
+    for ax in fig.axes:
+        ax.title.set_fontfamily("Times New Roman")
+        ax.title.set_fontweight("bold")
+        ax.xaxis.label.set_fontfamily("Times New Roman")
+        ax.xaxis.label.set_fontweight("bold")
+        ax.yaxis.label.set_fontfamily("Times New Roman")
+        ax.yaxis.label.set_fontweight("bold")
+        ax.xaxis.get_offset_text().set_fontfamily("Times New Roman")
+        ax.xaxis.get_offset_text().set_fontweight("bold")
+        ax.yaxis.get_offset_text().set_fontfamily("Times New Roman")
+        ax.yaxis.get_offset_text().set_fontweight("bold")
+
+        for lbl in ax.get_xticklabels() + ax.get_yticklabels():
+            lbl.set_fontfamily("Times New Roman")
+            lbl.set_fontweight("bold")
+        for lbl in ax.get_xticklabels(minor=True) + ax.get_yticklabels(minor=True):
+            lbl.set_fontfamily("Times New Roman")
+            lbl.set_fontweight("bold")
+
+        for txt in ax.texts:
+            txt.set_fontfamily("Times New Roman")
+            txt.set_fontweight("bold")
+
+        leg = ax.get_legend()
+        if leg is not None:
+            for ltxt in leg.get_texts():
+                ltxt.set_fontfamily("Times New Roman")
+                ltxt.set_fontweight("bold")
+            if leg.get_title() is not None:
+                leg.get_title().set_fontfamily("Times New Roman")
+                leg.get_title().set_fontweight("bold")
+            frame = leg.get_frame()
+            frame.set_linewidth(1.1)
+            frame.set_edgecolor("#111111")
+            frame.set_facecolor("#FFFFFF")
 
 
 def _draw_simplicial_flow_panel(
@@ -79,10 +219,11 @@ def _draw_simplicial_flow_panel(
     tri_values: np.ndarray | None = None,
     node_values: np.ndarray | None = None,
     tri_cmap: str = "coolwarm",
-    arrow_color: str = "#111827",
+    arrow_color: str = "#111111",
     edge_cmap: str = "viridis",
 ) -> None:
     coords = sc.coords[:, :2]
+    ax.set_facecolor("#FFFFFF")
 
     # 1. Draw 2-simplices
     if sc.num_triangles > 0:
@@ -91,13 +232,13 @@ def _draw_simplicial_flow_panel(
             vmax = max(float(np.max(np.abs(tri_values))), 1e-6)
             norm = plt.Normalize(vmin=-vmax, vmax=vmax)
             facecolors = plt.get_cmap(tri_cmap)(norm(tri_values))
-            facecolors[:, 3] = 0.52
+            facecolors[:, 3] = 0.50
             poly = PolyCollection(verts, facecolors=facecolors, edgecolors="none", zorder=1)
         else:
             poly = PolyCollection(
                 verts,
-                facecolors="#e5e7eb",
-                alpha=0.55,
+                facecolors="#EAECEE",
+                alpha=0.58,
                 edgecolors="none",
                 zorder=1,
             )
@@ -108,9 +249,9 @@ def _draw_simplicial_flow_panel(
     abs_f = np.abs(flow)
     f_max = max(float(np.percentile(abs_f, 98)), 1e-6)
     strength = np.clip(abs_f / f_max, 0.0, 1.0)
-    widths = 0.55 + 2.2 * strength
-    colors = plt.get_cmap(edge_cmap)(0.15 + 0.80 * strength)
-    colors[:, 3] = 0.35 + 0.60 * strength
+    widths = 0.55 + 2.25 * strength
+    colors = plt.get_cmap(edge_cmap)(0.18 + 0.78 * strength)
+    colors[:, 3] = 0.36 + 0.60 * strength
     lc = LineCollection(segments, linewidths=widths, colors=colors, zorder=2)
     ax.add_collection(lc)
 
@@ -124,26 +265,26 @@ def _draw_simplicial_flow_panel(
             cmap="RdBu_r",
             vmin=-vmax_n,
             vmax=vmax_n,
-            s=26,
-            edgecolors="#1f2937",
-            linewidths=0.45,
+            s=28,
+            edgecolors="#111111",
+            linewidths=0.50,
             zorder=4,
         )
     else:
         ax.scatter(
             coords[:, 0],
             coords[:, 1],
-            color="#374151",
-            s=11,
-            alpha=0.65,
+            color="#2C3E50",
+            s=12,
+            alpha=0.72,
             zorder=3,
         )
 
-    # 4. Draw interpolated quiver arrows at vertices
+    # 4. Draw interpolated quiver arrows at vertices (clipped cleanly inside panel frame)
     node_vecs = edge_cochain_to_node_vectors(sc, flow)
     vec_norms = np.linalg.norm(node_vecs, axis=1)
     v_ref = max(float(np.percentile(vec_norms, 95)), 1e-8)
-    scaled_vecs = (node_vecs / v_ref) * 0.13
+    scaled_vecs = (node_vecs / v_ref) * 0.125
     keep = vec_norms > 0.08 * v_ref
     ax.quiver(
         coords[keep, 0],
@@ -154,10 +295,11 @@ def _draw_simplicial_flow_panel(
         scale_units="xy",
         scale=1.0,
         color=arrow_color,
-        width=0.0048,
-        headwidth=3.8,
-        headlength=4.5,
-        alpha=0.90,
+        width=0.0046,
+        headwidth=3.7,
+        headlength=4.4,
+        alpha=0.92,
+        clip_on=True,
         zorder=5,
     )
 
@@ -169,11 +311,11 @@ def _draw_simplicial_flow_panel(
         circ = mpatches.Circle(
             (cx, cy),
             radius=hole_r,
-            facecolor="#ffffff",
-            edgecolor="#991b1b",
+            facecolor="#FFFFFF",
+            edgecolor="#B03A2E",
             linestyle="--",
-            linewidth=1.25,
-            alpha=0.92,
+            linewidth=1.35,
+            alpha=0.95,
             zorder=6,
         )
         ax.add_patch(circ)
@@ -184,31 +326,32 @@ def _draw_simplicial_flow_panel(
             lbl,
             ha="center",
             va="center",
-            fontsize=8.2,
+            fontsize=8.6,
             fontweight="bold",
-            color="#7f1d1d",
+            color="#B03A2E",
             zorder=7,
         )
 
-    ax.set_xlim(-1.14, 1.14)
-    ax.set_ylim(-0.79, 0.79)
+    # Generous margin so boundary quiver arrowheads stay strictly inside closed 1.2pt border
+    ax.set_xlim(-1.19, 1.19)
+    ax.set_ylim(-0.86, 0.86)
     ax.set_aspect("equal")
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(True)
-        spine.set_color("#cbd5e1")
-        spine.set_linewidth(0.9)
-    ax.set_title(title, pad=16, fontsize=11.2, fontweight="bold")
+        spine.set_edgecolor("#111111")
+        spine.set_linewidth(1.20)
+    ax.set_title(title, pad=20, fontsize=11.1, fontweight="bold")
     ax.text(
         0.5,
-        1.015,
+        1.022,
         subtitle,
         transform=ax.transAxes,
         ha="center",
         va="bottom",
-        fontsize=8.6,
-        color="#334155",
+        fontsize=8.7,
+        color="#1B2631",
     )
 
 
@@ -227,73 +370,75 @@ def generate_figure_1_hhd(assets_dir: Path) -> Dict[str, Any]:
         np.max(np.abs((sc.B1.T @ (sc.B1 @ hhd.f_harm)) + (sc.B2 @ (sc.B2.T @ hhd.f_harm))))
     )
 
-    fig, axes = plt.subplots(2, 2, figsize=(13.2, 9.2), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(13.6, 9.6), constrained_layout=True)
 
     _draw_simplicial_flow_panel(
         axes[0, 0],
         sc,
         hhd.f_total,
-        title="(A) Total 1-Cochain Edge Flux  f = f_grad + f_curl + f_harm",
+        title="(a) Total 1-Cochain Edge Flux $\\mathbf{f} = \\mathbf{f}_{\\mathrm{grad}} + \\mathbf{f}_{\\mathrm{curl}} + \\mathbf{f}_{\\mathrm{harm}}$",
         subtitle=(
-            f"N0={sc.num_nodes}, N1={sc.num_edges}, N2={sc.num_triangles}  |  "
-            f"Betti (beta_0={beta_0}, beta_1={beta_1})  |  ||f||^2 = {hhd.energies['total']:.3f}"
+            f"$N_0 = {sc.num_nodes},\\; N_1 = {sc.num_edges},\\; N_2 = {sc.num_triangles}$  |  "
+            f"Betti $(\\beta_0 = {beta_0},\\; \\beta_1 = {beta_1})$  |  "
+            f"$||\\mathbf{{f}}||_2^2 = {hhd.energies['total']:.3f}$"
         ),
         edge_cmap="magma_r",
-        arrow_color="#0f172a",
+        arrow_color="#111111",
     )
 
     _draw_simplicial_flow_panel(
         axes[0, 1],
         sc,
         hhd.f_grad,
-        title="(B) Irrotational Gradient Component  f_grad = B1^T phi",
+        title="(b) Irrotational Gradient Component $\\mathbf{f}_{\\mathrm{grad}} = \\mathbf{B}_1^\\top \\boldsymbol{\\phi}$",
         subtitle=(
             f"Energy Share: {100.0 * hhd.energy_fractions['grad']:.1f}%  |  "
-            f"Curl-Free Residual ||B2^T f_grad||_inf = {curl_grad:.2e}"
+            f"Curl-Free Residual $||\\mathbf{{B}}_2^\\top \\mathbf{{f}}_{{\\mathrm{{grad}}}}||_\\infty = {_sci_tex(curl_grad)}$"
         ),
         node_values=hhd.phi - np.mean(hhd.phi),
         edge_cmap="Blues",
-        arrow_color="#1e3a8a",
+        arrow_color="#1B4F72",
     )
 
     _draw_simplicial_flow_panel(
         axes[1, 0],
         sc,
         hhd.f_curl,
-        title="(C) Coexact Rotational Curl Component  f_curl = B2 psi",
+        title="(c) Coexact Rotational Curl Component $\\mathbf{f}_{\\mathrm{curl}} = \\mathbf{B}_2 \\boldsymbol{\\psi}$",
         subtitle=(
             f"Energy Share: {100.0 * hhd.energy_fractions['curl']:.1f}%  |  "
-            f"Div-Free Residual ||B1 f_curl||_inf = {div_curl:.2e}"
+            f"Div-Free Residual $||\\mathbf{{B}}_1 \\mathbf{{f}}_{{\\mathrm{{curl}}}}||_\\infty = {_sci_tex(div_curl)}$"
         ),
         tri_values=hhd.psi,
         tri_cmap="PiYG",
         edge_cmap="Purples",
-        arrow_color="#4c1d95",
+        arrow_color="#5B2C6F",
     )
 
     _draw_simplicial_flow_panel(
         axes[1, 1],
         sc,
         hhd.f_harm,
-        title="(D) Topological Harmonic Component  f_harm in ker(L1)",
+        title="(d) Topological Harmonic Component $\\mathbf{f}_{\\mathrm{harm}} \\in \\ker(\\mathbf{L}_1)$",
         subtitle=(
             f"Energy Share: {100.0 * hhd.energy_fractions['harm']:.1f}%  |  "
-            f"Hodge Kernel Residual ||L1 f_harm||_inf = {l1_harm:.2e}"
+            f"Hodge Kernel Residual $||\\mathbf{{L}}_1 \\mathbf{{f}}_{{\\mathrm{{harm}}}}||_\\infty = {_sci_tex(l1_harm)}$"
         ),
         edge_cmap="YlOrRd",
-        arrow_color="#7c2d12",
+        arrow_color="#B03A2E",
     )
 
     fig.suptitle(
-        "Orthogonal Helmholtz-Hodge Decomposition on Punctured 2-Simplicial Complex  "
-        f"(Max Inner-Product Error = {hhd.orthogonality_errors['max']:.2e},  "
-        f"Parseval Error = {hhd.parseval_error:.2e})",
-        fontsize=12.5,
+        "Orthogonal Helmholtz–Hodge Decomposition ($\\mathbf{L}_1 = \\mathbf{B}_1^\\top \\mathbf{B}_1 + \\mathbf{B}_2 \\mathbf{B}_2^\\top$;  "
+        f"Max Ortho. Error $= {_sci_tex(hhd.orthogonality_errors['max'])}$,  "
+        f"Parseval Error $= {_sci_tex(hhd.parseval_error)}$)",
+        fontsize=12.3,
         fontweight="bold",
     )
 
+    _finalize_journal_figure(fig)
     out_path = assets_dir / "helmholtz_hodge_decomposition.png"
-    fig.savefig(out_path, dpi=240, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     return {
@@ -331,41 +476,46 @@ def generate_figure_2_contagion(assets_dir: Path) -> Dict[str, Any]:
     ana_exp = analytical_bifurcation_curve(dense_l1, lambda_2=2.8)
     ana_cont = analytical_bifurcation_curve(dense_l1, lambda_2=0.8)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13.4, 5.4), constrained_layout=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13.8, 5.6), constrained_layout=True)
+    _style_continuous_axes(ax1)
+    _style_continuous_axes(ax2)
 
     # Shade bistable hysteresis zone
     tip_back = float(ana_exp["lambda_1_critical_backward"])
     ax1.axvspan(
         tip_back,
         1.0,
-        color="#fef2f2",
-        alpha=0.85,
+        color="#FDEDEC",
+        alpha=0.72,
         zorder=0,
-        label=f"Bistable Window [{tip_back:.2f}, 1.00]",
+        label=f"Bistable Window $[{tip_back:.2f},\\; 1.00]$",
     )
 
     # Analytical branches
     ax1.plot(
         dense_l1,
         ana_exp["upper_stable"],
-        color="#991b1b",
-        linewidth=2.2,
-        label="Mean-Field Stable (lambda_2 = 2.8)",
+        color="#B03A2E",
+        linewidth=2.4,
+        zorder=3,
+        label="Mean-Field Stable ($\\lambda_2 = 2.8$)",
     )
     ax1.plot(
         dense_l1,
         ana_exp["middle_unstable"],
-        color="#dc2626",
+        color="#C55A11",
         linestyle="--",
-        linewidth=1.8,
-        label="Unstable Separatrix rho_-^* (lambda_2 = 2.8)",
+        linewidth=1.9,
+        zorder=3,
+        label="Unstable Separatrix $\\rho_-^*$ ($\\lambda_2 = 2.8$)",
     )
     ax1.plot(
         dense_l1,
         ana_cont["upper_stable"],
-        color="#0f766e",
-        linewidth=2.0,
-        label="Mean-Field Continuous (lambda_2 = 0.8)",
+        color="#0B6E4F",
+        linewidth=2.2,
+        zorder=3,
+        label="Mean-Field Continuous ($\\lambda_2 = 0.8$)",
     )
 
     # Empirical simplicial complex sweeps
@@ -373,31 +523,40 @@ def generate_figure_2_contagion(assets_dir: Path) -> Dict[str, Any]:
         l1_grid,
         sweep_exp.rho_forward,
         "o-",
-        color="#ef4444",
-        markersize=5.2,
-        linewidth=1.3,
+        color="#C55A11",
+        markersize=5.0,
+        markeredgecolor="#111111",
+        markeredgewidth=0.45,
+        linewidth=1.35,
         alpha=0.92,
-        label="Complex Forward Sweep (lambda_2 = 2.8)",
+        zorder=4,
+        label="Complex Forward Sweep ($\\lambda_2 = 2.8$)",
     )
     ax1.plot(
         l1_grid,
         sweep_exp.rho_backward,
         "s-",
-        color="#7f1d1d",
-        markersize=5.0,
-        linewidth=1.3,
-        alpha=0.90,
-        label="Complex Backward Sweep (lambda_2 = 2.8)",
+        color="#5B2C6F",
+        markersize=4.8,
+        markeredgecolor="#111111",
+        markeredgewidth=0.45,
+        linewidth=1.35,
+        alpha=0.92,
+        zorder=5,
+        label="Complex Backward Sweep ($\\lambda_2 = 2.8$)",
     )
     ax1.plot(
         l1_grid,
         sweep_cont.rho_forward,
         "^-",
-        color="#14b8a6",
-        markersize=4.8,
-        linewidth=1.2,
-        alpha=0.9,
-        label="Complex Sweep (lambda_2 = 0.8, 2nd-Order)",
+        color="#1B4F72",
+        markersize=5.0,
+        markeredgecolor="#111111",
+        markeredgewidth=0.45,
+        linewidth=1.35,
+        alpha=0.92,
+        zorder=4,
+        label="Complex Sweep ($\\lambda_2 = 0.8$, 2nd-Order)",
     )
 
     # Annotate hysteresis gap
@@ -409,29 +568,37 @@ def generate_figure_2_contagion(assets_dir: Path) -> Dict[str, Any]:
         "",
         xy=(l1_star, y_hi),
         xytext=(l1_star, y_lo),
-        arrowprops=dict(arrowstyle="<->", color="#7f1d1d", lw=1.8),
+        arrowprops=dict(arrowstyle="<->", color="#B03A2E", lw=1.85),
+        zorder=6,
     )
     ax1.text(
         l1_star - 0.03,
         0.5 * (y_lo + y_hi),
-        f"Delta rho = {sweep_exp.max_hysteresis_gap:.2f}",
+        f"$\\Delta\\rho = {sweep_exp.max_hysteresis_gap:.2f}$",
         ha="right",
         va="center",
         fontsize=9.2,
         fontweight="bold",
-        color="#7f1d1d",
-        bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="#fecaca", alpha=0.9),
+        color="#B03A2E",
+        zorder=7,
+        bbox=dict(boxstyle="square,pad=0.25", facecolor="#FFFFFF", edgecolor="#B03A2E", lw=1.0, alpha=0.96),
     )
 
-    ax1.set_xlabel("Rescaled Pairwise Infectivity  lambda_1 = beta_1 <k_1> / mu")
-    ax1.set_ylabel("Steady-State Infected Density  rho^*")
-    ax1.set_title("(A) Explosive First-Order Tipping & Hysteresis vs Pairwise Transition")
+    ax1.set_xlabel("Rescaled Pairwise Infectivity $\\lambda_1 = \\beta_1 \\langle k_1 \\rangle / \\mu$")
+    ax1.set_ylabel("Steady-State Infected Density $\\rho^*$")
+    ax1.set_title("(a) Explosive First-Order Tipping & Hysteresis vs. Pairwise Transition", pad=8)
     ax1.set_xlim(0.20, 1.45)
-    ax1.set_ylim(-0.03, 0.88)
-    ax1.grid(True, linestyle=":", alpha=0.45)
-    ax1.legend(loc="upper left", frameon=True, framealpha=0.92, fontsize=8.0)
+    # Generous upper headroom so upper-left legend clears backward sweep curve completely
+    ax1.set_ylim(-0.03, 1.05)
+    ax1.legend(
+        loc="upper left",
+        fancybox=False,
+        edgecolor="#111111",
+        framealpha=0.96,
+        fontsize=7.9,
+    )
 
-    # Panel B: Time-series bistability splitting at lambda_1 = 0.78, lambda_2 = 2.8
+    # Panel (b): Time-series bistability splitting at lambda_1 = 0.78, lambda_2 = 2.8
     l1_bistable = 0.78
     eq_bi = analytical_mean_field_equilibria(l1_bistable, 2.8)
     rho_sep = float(eq_bi["unstable_separatrix"] or 0.16)
@@ -452,13 +619,17 @@ def generate_figure_2_contagion(assets_dir: Path) -> Dict[str, Any]:
             seed=100 + s_idx,
         )
         is_upper = r0 > rho_sep
-        color = cmap_high(0.55 + 0.35 * (s_idx / len(seeds_rho0))) if is_upper else cmap_low(0.55 + 0.35 * (s_idx / 3.0))
+        color = (
+            cmap_high(0.58 + 0.34 * (s_idx / len(seeds_rho0)))
+            if is_upper
+            else cmap_low(0.58 + 0.34 * (s_idx / 3.0))
+        )
         lbl = None
         if r0 == seeds_rho0[0]:
-            lbl = "Sub-threshold Seeds (Decay -> 0)"
+            lbl = "Sub-threshold Seeds ($\\rho_0 < \\rho_-^* \\to 0$)"
         elif r0 == seeds_rho0[-1]:
-            lbl = "Super-threshold Seeds (Amplify -> Endemic)"
-        ax2.plot(traj["times"], traj["rho"], color=color, linewidth=2.0, label=lbl)
+            lbl = "Super-threshold Seeds ($\\rho_0 > \\rho_-^* \\to \\rho_+^*$)"
+        ax2.plot(traj["times"], traj["rho"], color=color, linewidth=2.05, zorder=4, label=lbl)
 
     # Overlay two stochastic Markovian realizations (high vs low initial seed)
     stoch_hi = simulate_stochastic_contagion(
@@ -470,45 +641,58 @@ def generate_figure_2_contagion(assets_dir: Path) -> Dict[str, Any]:
     ax2.plot(
         stoch_hi["times"],
         stoch_hi["rho"],
-        color="#991b1b",
-        alpha=0.38,
-        linewidth=1.2,
+        color="#B03A2E",
+        alpha=0.40,
+        linewidth=1.15,
+        zorder=2,
         label="Microscopic Markov Realizations",
     )
-    ax2.plot(stoch_lo["times"], stoch_lo["rho"], color="#1e40af", alpha=0.38, linewidth=1.2)
+    ax2.plot(stoch_lo["times"], stoch_lo["rho"], color="#1B4F72", alpha=0.40, linewidth=1.15, zorder=2)
 
     ax2.axhline(
         rho_sep,
-        color="#dc2626",
+        color="#C55A11",
         linestyle="--",
-        linewidth=1.6,
-        label=f"Unstable Threshold rho_-^* = {rho_sep:.3f}",
+        linewidth=1.75,
+        zorder=3,
+        label=f"Unstable Separatrix $\\rho_-^* = {rho_sep:.3f}$",
     )
     ax2.axhline(
         rho_end,
-        color="#7f1d1d",
+        color="#5B2C6F",
         linestyle="-.",
-        linewidth=1.4,
-        label=f"Endemic Attractor rho_+^* = {rho_end:.3f}",
+        linewidth=1.60,
+        zorder=3,
+        label=f"Endemic Attractor $\\rho_+^* = {rho_end:.3f}$",
     )
 
-    ax2.set_xlabel("Dimensionless Time  tau = mu t")
-    ax2.set_ylabel("Active / Infected Fraction  rho(tau)")
-    ax2.set_title(f"(B) Bistable Basin Splitting at lambda_1 = {l1_bistable:.2f}, lambda_2 = 2.8")
+    ax2.set_xlabel("Dimensionless Time $\\tau = \\mu t$")
+    ax2.set_ylabel("Active / Infected Fraction $\\rho(\\tau)$")
+    ax2.set_title(
+        f"(b) Bistable Basin Splitting ($\\lambda_1 = {l1_bistable:.2f},\\; \\lambda_2 = 2.8$)",
+        pad=8,
+    )
     ax2.set_xlim(0.0, 45.0)
-    ax2.set_ylim(-0.03, 0.82)
-    ax2.grid(True, linestyle=":", alpha=0.45)
-    ax2.legend(loc="center right", frameon=True, framealpha=0.92, fontsize=8.2)
+    # Upper headroom places upper-right legend completely above stochastic realizations (max ~0.68)
+    ax2.set_ylim(-0.03, 1.00)
+    ax2.legend(
+        loc="upper right",
+        fancybox=False,
+        edgecolor="#111111",
+        framealpha=0.96,
+        fontsize=8.0,
+    )
 
     fig.suptitle(
         f"Higher-Order Simplicial Contagion Dynamics on Random 2-Complex "
-        f"(N={sc_rsc.num_nodes}, <k_1>={k1_emp:.1f}, <k_2>={k2_emp:.1f})",
-        fontsize=12.8,
+        f"($N = {sc_rsc.num_nodes},\\; \\langle k_1 \\rangle = {k1_emp:.1f},\\; \\langle k_2 \\rangle = {k2_emp:.1f}$)",
+        fontsize=12.6,
         fontweight="bold",
     )
 
+    _finalize_journal_figure(fig)
     out_path = assets_dir / "simplicial_phase_transition.png"
-    fig.savefig(out_path, dpi=240, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     return {
@@ -579,64 +763,77 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
     homotopy_mean = {m: float(np.mean(homotopy_runs[m])) for m in model_names}
     homotopy_std = {m: float(np.std(homotopy_runs[m])) for m in model_names}
 
-    # Plot Figure 3
+    # High-contrast academic journal palette
     palette = {
-        "NodeGCN": "#2563eb",
-        "EdgeMLP": "#64748b",
-        "Isotropic-L1-GCN": "#d97706",
-        "HodgeSimplicialNN": "#b91c1c",
+        "NodeGCN": "#1B4F72",            # Navy
+        "EdgeMLP": "#5D6D7E",            # Slate
+        "Isotropic-L1-GCN": "#C55A11",   # Ochre
+        "HodgeSimplicialNN": "#B03A2E",  # Crimson
     }
     markers = {
         "NodeGCN": "s",
-        "EdgeMLP": "d",
+        "EdgeMLP": "D",
         "Isotropic-L1-GCN": "^",
         "HodgeSimplicialNN": "o",
     }
     display_labels = {
-        "NodeGCN": "NodeGCN (L0 + Edge Diff)",
+        "NodeGCN": "NodeGCN ($\\mathbf{L}_0$ + Edge Diff)",
         "EdgeMLP": "EdgeMLP (Topology-Free)",
-        "Isotropic-L1-GCN": "Isotropic-L1-GCN (Conflated)",
+        "Isotropic-L1-GCN": "Isotropic $\\mathbf{L}_1$-GCN (Conflated)",
         "HodgeSimplicialNN": "HodgeSimplicialNN (Ours)",
     }
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13.4, 5.3), constrained_layout=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13.8, 5.5), constrained_layout=True)
+    _style_continuous_axes(ax1)
+    _style_categorical_axes(ax2)
 
     pct_grid = [100.0 * e for e in eta_grid]
     for m in model_names:
-        lw = 2.6 if m == "HodgeSimplicialNN" else 1.85
+        lw = 2.65 if m == "HodgeSimplicialNN" else 1.95
         ax1.plot(
             pct_grid,
             imputation_curves[m]["r2"],
             marker=markers[m],
             color=palette[m],
+            markeredgecolor="#111111",
+            markeredgewidth=0.60,
             linewidth=lw,
-            markersize=6.5,
+            markersize=6.6,
+            zorder=5 if m == "HodgeSimplicialNN" else 4,
             label=display_labels[m],
         )
 
-    ax1.axhline(0.0, color="#94a3b8", linestyle="--", linewidth=1.0)
+    ax1.axhline(0.0, color="#5D6D7E", linestyle="--", linewidth=1.05, zorder=2)
+    # Placed cleanly in empty mid-upper space so pointer arrow crosses zero curves
+    idx_75 = eta_grid.index(0.75)
     ax1.annotate(
-        "NodeGCN blind to curl + harmonic\n(im(B1^T) perp ker(B1))",
+        "NodeGCN blind to curl + harmonic\n($\\mathrm{im}(\\mathbf{B}_1^\\top) \\bot \\ker(\\mathbf{B}_1)$)",
         xy=(100.0, imputation_curves["NodeGCN"]["r2"][-1]),
-        xytext=(52.0, 0.14),
+        xytext=(38.0, 0.72),
         fontsize=8.4,
-        color="#1e40af",
-        arrowprops=dict(arrowstyle="->", color="#2563eb", lw=1.3),
-        bbox=dict(boxstyle="round,pad=0.22", facecolor="#eff6ff", edgecolor="#bfdbfe"),
+        color="#1B4F72",
+        zorder=7,
+        arrowprops=dict(arrowstyle="-|>", color="#1B4F72", lw=1.35, mutation_scale=11),
+        bbox=dict(boxstyle="square,pad=0.28", facecolor="#FFFFFF", edgecolor="#1B4F72", lw=1.0, alpha=0.96),
     )
 
-    ax1.set_xlabel("Solenoidal (Curl + Harmonic) Energy Share  eta_sol (%)")
-    ax1.set_ylabel("Missing Edge Flux Reconstruction  Test R^2")
-    ax1.set_title("(A) 40% Missing Edge Flux Imputation vs Flow Topology")
+    ax1.set_xlabel("Solenoidal (Curl + Harmonic) Energy Share $\\eta_{\\mathrm{sol}}$ [%]")
+    ax1.set_ylabel("Missing Edge Flux Reconstruction Test $R^2$")
+    ax1.set_title("(a) 40% Missing Edge Flux Imputation vs. Flow Topology", pad=8)
     ax1.set_xticks(pct_grid)
-    ax1.set_ylim(-0.12, 1.04)
-    ax1.grid(True, linestyle=":", alpha=0.45)
-    ax1.legend(loc="lower left", frameon=True, framealpha=0.92, fontsize=8.3)
+    ax1.set_xlim(-4.0, 104.0)
+    ax1.set_ylim(-0.12, 1.06)
+    ax1.legend(
+        loc="lower left",
+        fancybox=False,
+        edgecolor="#111111",
+        framealpha=0.96,
+        fontsize=8.2,
+    )
 
-    # Panel B: Grouped comparison of Homotopy Classification Accuracy & Mixed-Flow (eta=0.75) R^2
+    # Panel (b): Grouped comparison of Homotopy Classification Accuracy & Mixed-Flow (eta=0.75) R^2
     x_pos = np.arange(len(model_names))
     width = 0.36
-    idx_75 = eta_grid.index(0.75)
     r2_mixed = [max(0.0, imputation_curves[m]["r2"][idx_75]) * 100.0 for m in model_names]
     acc_pct = [homotopy_mean[m] * 100.0 for m in model_names]
     acc_err = [homotopy_std[m] * 100.0 for m in model_names]
@@ -647,66 +844,91 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
         width,
         yerr=acc_err,
         capsize=4,
+        error_kw=dict(ecolor="#111111", elinewidth=1.2, capthick=1.2),
         color=[palette[m] for m in model_names],
         alpha=0.92,
-        edgecolor="#1f2937",
-        linewidth=0.8,
-        label="Homotopy Loop Classification Acc (%)",
+        edgecolor="#111111",
+        linewidth=0.95,
+        zorder=3,
     )
     bars2 = ax2.bar(
         x_pos + width / 2,
         r2_mixed,
         width,
         color=[palette[m] for m in model_names],
-        alpha=0.45,
+        alpha=0.48,
         hatch="//",
-        edgecolor="#1f2937",
-        linewidth=0.8,
-        label="Mixed-Flow (75% Solenoidal) R^2 x 100",
+        edgecolor="#111111",
+        linewidth=0.95,
+        zorder=3,
     )
 
-    for b in bars1:
+    for b, err_v in zip(bars1, acc_err):
         h_val = b.get_height()
         ax2.text(
             b.get_x() + b.get_width() / 2,
-            h_val + 2.2,
+            h_val + err_v + 1.8,
             f"{h_val:.1f}%",
             ha="center",
             va="bottom",
             fontsize=8.3,
             fontweight="bold",
+            color="#111111",
         )
     for b in bars2:
         h_val = b.get_height()
         ax2.text(
             b.get_x() + b.get_width() / 2,
-            h_val + 1.5,
+            h_val + 1.6,
             f"{h_val:.1f}",
             ha="center",
             va="bottom",
-            fontsize=8.0,
-            color="#334155",
+            fontsize=8.1,
+            color="#1B2631",
         )
 
     ax2.set_xticks(x_pos)
     ax2.set_xticklabels(
-        ["NodeGCN", "EdgeMLP", "Isotropic\nL1-GCN", "HodgeSNN\n(Ours)"],
+        ["NodeGCN", "EdgeMLP", "Isotropic\n$\\mathbf{L}_1$-GCN", "HodgeSNN\n(Ours)"],
         fontweight="bold",
     )
-    ax2.set_ylabel("Score (% / R^2 x 100)")
-    ax2.set_title("(B) Out-of-Distribution Homotopy Classification & Imputation")
-    ax2.set_ylim(0.0, 114.0)
-    ax2.grid(True, axis="y", linestyle=":", alpha=0.45)
-    ax2.legend(loc="upper left", frameon=True, framealpha=0.92, fontsize=8.3)
+    ax2.set_ylabel("Benchmark Score [% / $R^2 \\times 100$]")
+    ax2.set_title("(b) Out-of-Distribution Homotopy Classification & Imputation", pad=8)
+    ax2.set_ylim(0.0, 117.0)
+
+    legend_proxies = [
+        Patch(
+            facecolor="#4A5568",
+            edgecolor="#111111",
+            linewidth=0.95,
+            label="Homotopy Loop Classification Acc. [%]",
+        ),
+        Patch(
+            facecolor="#CBD5E1",
+            edgecolor="#111111",
+            linewidth=0.95,
+            hatch="//",
+            label="Mixed-Flow ($\\eta_{\\mathrm{sol}} = 75\\%$) $R^2 \\times 100$",
+        ),
+    ]
+    ax2.legend(
+        handles=legend_proxies,
+        loc="upper left",
+        fancybox=False,
+        edgecolor="#111111",
+        framealpha=0.96,
+        fontsize=8.2,
+    )
 
     fig.suptitle(
-        "Simplicial Deep Learning Benchmark: Decoupled Hodge Convolutions vs Pairwise & Isotropic Baselines",
-        fontsize=12.6,
+        "Simplicial Deep Learning Benchmark: Decoupled Hodge Convolutions vs. Pairwise & Isotropic Baselines",
+        fontsize=12.5,
         fontweight="bold",
     )
 
+    _finalize_journal_figure(fig)
     out_path = assets_dir / "hodge_snn_benchmark.png"
-    fig.savefig(out_path, dpi=240, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     return {
@@ -735,113 +957,201 @@ def generate_figure_4_spectrum(assets_dir: Path) -> Dict[str, Any]:
     cap1_end = int(cap1_indices[-1]) if len(cap1_indices) > 0 else mesh_end
     cap2_end = int(cap2_indices[-1]) if len(cap2_indices) > 0 else cap1_end
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13.4, 5.2), constrained_layout=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13.8, 5.5), constrained_layout=True)
 
-    # Highlight phases
-    ax1.axvspan(0, mesh_end, color="#f8fafc", alpha=0.9, label="Phase I: Local Mesh 2-Simplex Fill")
-    ax1.axvspan(mesh_end, cap1_end, color="#fef3c7", alpha=0.55, label="Phase IIa: Cap Cavity A (beta_1: 2 -> 1)")
-    ax1.axvspan(cap1_end, cap2_end, color="#fee2e2", alpha=0.55, label="Phase IIb: Cap Cavity B (beta_1: 1 -> 0)")
+    # Style dual-axis Panel (a) with 4-sided closed #111111 frame and inward ticks
+    ax1.set_facecolor("#FFFFFF")
+    for spine in ax1.spines.values():
+        spine.set_visible(True)
+        spine.set_edgecolor("#111111")
+        spine.set_linewidth(1.30)
+    ax1.tick_params(
+        axis="x",
+        which="major",
+        direction="in",
+        top=True,
+        bottom=True,
+        length=4.5,
+        width=1.2,
+        color="#111111",
+        labelcolor="#111111",
+    )
+    ax1.tick_params(
+        axis="y",
+        which="major",
+        direction="in",
+        left=True,
+        right=False,
+        length=4.5,
+        width=1.2,
+        color="#B03A2E",
+        labelcolor="#B03A2E",
+    )
+    ax1.grid(True, which="major", linestyle=":", linewidth=0.70, alpha=0.35, color="#94A3B8")
 
-    line1 = ax1.plot(
+    # Highlight filtration phases
+    ax1.axvspan(0, mesh_end, color="#F8FAFC", alpha=0.90, zorder=0, label="Phase I: Local Mesh Fill")
+    ax1.axvspan(
+        mesh_end, cap1_end, color="#FEF5E7", alpha=0.65, zorder=0,
+        label="Phase IIa: Seal Cavity A ($\\beta_1: 2 \\to 1$)"
+    )
+    ax1.axvspan(
+        cap1_end, cap2_end, color="#FDEDEC", alpha=0.65, zorder=0,
+        label="Phase IIb: Seal Cavity B ($\\beta_1: 1 \\to 0$)"
+    )
+
+    ax1.plot(
         steps,
         beta_1,
         "o-",
-        color="#b91c1c",
-        linewidth=2.3,
-        markersize=4.2,
-        label="Betti Number beta_1 = dim ker(L1)",
+        color="#B03A2E",
+        markeredgecolor="#111111",
+        markeredgewidth=0.35,
+        linewidth=2.25,
+        markersize=4.3,
+        zorder=4,
+        label="Betti Number $\\beta_1 = \\dim\\ker(\\mathbf{L}_1)$",
     )
-    ax1.set_xlabel("2-Simplex Filtration & Cavity-Surgery Step")
-    ax1.set_ylabel("First Betti Number  beta_1", color="#b91c1c", fontweight="bold")
-    ax1.tick_params(axis="y", labelcolor="#b91c1c")
-    ax1.grid(True, linestyle=":", alpha=0.45)
+    ax1.set_xlabel("2-Simplex Filtration & Cavity-Surgery Step $s$")
+    ax1.set_ylabel("First Betti Number $\\beta_1$", color="#B03A2E", fontweight="bold")
+    ax1.set_xlim(-1.5, cap2_end + 1.5)
+    # Generous upper headroom so legend sits cleanly above both curves
+    ax1.set_ylim(-6.0, 188.0)
 
     ax1_twin = ax1.twinx()
-    ax1_twin.spines["top"].set_visible(False)
-    ax1_twin.spines["right"].set_visible(True)
-    line2 = ax1_twin.plot(
+    for spine in ax1_twin.spines.values():
+        spine.set_visible(True)
+        spine.set_edgecolor("#111111")
+        spine.set_linewidth(1.30)
+    ax1_twin.tick_params(
+        axis="y",
+        which="major",
+        direction="in",
+        right=True,
+        left=False,
+        length=4.5,
+        width=1.2,
+        color="#1B4F72",
+        labelcolor="#1B4F72",
+    )
+    ax1_twin.plot(
         steps,
         gap,
         "s--",
-        color="#1d4ed8",
-        linewidth=1.9,
-        markersize=3.8,
-        label="Non-Zero 1-Hodge Gap lambda_gap(L1)",
+        color="#1B4F72",
+        markeredgecolor="#111111",
+        markeredgewidth=0.35,
+        linewidth=1.95,
+        markersize=4.0,
+        zorder=4,
+        label="Spectral Gap $\\lambda_{\\Delta}(\\mathbf{L}_1) = \\lambda_{\\min}^+(\\mathbf{L}_1)$",
     )
-    ax1_twin.set_ylabel("1-Hodge Spectral Gap  lambda_min^+(L1)", color="#1d4ed8", fontweight="bold")
-    ax1_twin.tick_params(axis="y", labelcolor="#1d4ed8")
+    ax1_twin.set_ylabel(
+        "1-Hodge Spectral Gap $\\lambda_{\\Delta}(\\mathbf{L}_1)$",
+        color="#1B4F72",
+        fontweight="bold",
+    )
+    ax1_twin.set_ylim(0.058, 0.148)
 
-    # Combine legends cleanly
     handles1, labels1 = ax1.get_legend_handles_labels()
     handles2, labels2 = ax1_twin.get_legend_handles_labels()
     ax1.legend(
         handles1 + handles2,
         labels1 + labels2,
         loc="upper right",
-        frameon=True,
-        framealpha=0.92,
-        fontsize=7.9,
+        fancybox=False,
+        edgecolor="#111111",
+        framealpha=0.96,
+        fontsize=7.8,
     )
-    ax1.set_title("(A) Betti-1 Decay, Topological Plateau & Cavity Annihilation")
+    ax1.set_title("(a) Betti-1 Decay, Topological Plateau & Cavity Annihilation", pad=8)
 
-    # Panel B: Lowest 16 eigenvalues of L1
-    ax2.axvspan(mesh_end, cap1_end, color="#fef3c7", alpha=0.45)
-    ax2.axvspan(cap1_end, cap2_end, color="#fee2e2", alpha=0.45)
+    # Panel (b): Lowest 16 eigenvalues of L1
+    _style_continuous_axes(ax2)
+    ax2.axvspan(mesh_end, cap1_end, color="#FEF5E7", alpha=0.55, zorder=0)
+    ax2.axvspan(cap1_end, cap2_end, color="#FDEDEC", alpha=0.55, zorder=0)
 
     cmap_spec = plt.get_cmap("viridis")
     for k in range(2, low_eigs.shape[1]):
         ax2.plot(
             steps,
             low_eigs[:, k],
-            color=cmap_spec(k / low_eigs.shape[1]),
+            color=cmap_spec(0.15 + 0.78 * (k / low_eigs.shape[1])),
             linewidth=1.25,
-            alpha=0.78,
-            label="Higher Acoustic Modes (k >= 3)" if k == 2 else None,
+            alpha=0.80,
+            zorder=2,
+            label="Acoustic Modes ($k \\geq 3$)" if k == 2 else None,
         )
 
     # Highlight the 2 topological cavity zero-modes
     ax2.plot(
         steps,
         low_eigs[:, 1],
-        color="#d97706",
-        linewidth=2.6,
-        label="Mode lambda_2 (Lifts when Cavity A Sealed)",
+        color="#C55A11",
+        linewidth=2.65,
+        zorder=4,
+        label="Cavity-A Mode $\\lambda_2(\\mathbf{L}_1)$",
     )
     ax2.plot(
         steps,
         low_eigs[:, 0],
-        color="#dc2626",
-        linewidth=2.8,
+        color="#B03A2E",
+        linewidth=2.85,
         linestyle="-",
-        label="Mode lambda_1 (Lifts when Cavity B Sealed)",
+        zorder=5,
+        label="Cavity-B Mode $\\lambda_1(\\mathbf{L}_1)$",
     )
 
-    ax2.axvline(mesh_end, color="#475569", linestyle="--", linewidth=1.2)
-    ax2.axvline(cap1_end, color="#b45309", linestyle="--", linewidth=1.2)
+    ax2.axvline(mesh_end, color="#5D6D7E", linestyle="--", linewidth=1.25, zorder=3)
+    ax2.axvline(cap1_end, color="#C55A11", linestyle="--", linewidth=1.25, zorder=3)
+
+    max_eig = float(np.max(low_eigs))
     ax2.text(
         mesh_end + 0.6,
-        float(np.max(low_eigs)) * 0.91,
-        "Mesh Filled (beta_1=2)",
+        max_eig * 1.075,
+        "Mesh Filled\n($\\beta_1 = 2$)",
         ha="left",
+        va="bottom",
         fontsize=8.0,
-        color="#334155",
-        fontweight="bold",
+        color="#1B4F72",
+        zorder=6,
+        bbox=dict(boxstyle="square,pad=0.22", facecolor="#FFFFFF", edgecolor="#5D6D7E", lw=0.95, alpha=0.95),
+    )
+    ax2.text(
+        cap1_end + 0.6,
+        max_eig * 1.075,
+        "Cavity A Sealed\n($\\beta_1 = 1$)",
+        ha="left",
+        va="bottom",
+        fontsize=8.0,
+        color="#C55A11",
+        zorder=6,
+        bbox=dict(boxstyle="square,pad=0.22", facecolor="#FFFFFF", edgecolor="#C55A11", lw=0.95, alpha=0.95),
     )
 
-    ax2.set_xlabel("2-Simplex Filtration & Cavity-Surgery Step")
-    ax2.set_ylabel("1-Hodge Laplacian Eigenvalues  lambda_k(L1)")
-    ax2.set_title("(B) Spectral Lifting of Harmonic Zero-Modes Under 2-Simplices")
-    ax2.grid(True, linestyle=":", alpha=0.45)
-    ax2.legend(loc="upper left", frameon=True, framealpha=0.92, fontsize=8.2)
+    ax2.set_xlabel("2-Simplex Filtration & Cavity-Surgery Step $s$")
+    ax2.set_ylabel("1-Hodge Eigenvalues $\\lambda_k(\\mathbf{L}_1)$")
+    ax2.set_title("(b) Spectral Lifting of Harmonic Zero-Modes Under 2-Simplices", pad=8)
+    ax2.set_xlim(-1.5, cap2_end + 1.5)
+    ax2.set_ylim(-0.03, max_eig * 1.27)
+    ax2.legend(
+        loc="upper left",
+        fancybox=False,
+        edgecolor="#111111",
+        framealpha=0.96,
+        fontsize=8.0,
+    )
 
     fig.suptitle(
-        "Spectral Topology of the 1-Hodge Laplacian: Local Triangle Filling vs Global Cavity Surgery",
-        fontsize=12.6,
+        "Spectral Topology of 1-Hodge Laplacian $\\mathbf{L}_1 = \\mathbf{B}_1^\\top \\mathbf{B}_1 + \\mathbf{B}_2 \\mathbf{B}_2^\\top$: "
+        "Mesh Filling vs. Cavity Surgery",
+        fontsize=12.4,
         fontweight="bold",
     )
 
+    _finalize_journal_figure(fig)
     out_path = assets_dir / "hodge_spectrum_cavity_filling.png"
-    fig.savefig(out_path, dpi=240, bbox_inches="tight")
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     return {
