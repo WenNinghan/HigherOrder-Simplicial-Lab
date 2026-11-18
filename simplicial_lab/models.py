@@ -30,27 +30,83 @@ from .hodge import (
 
 
 def _spectral_normalize(mat: np.ndarray) -> np.ndarray:
-    """Normalize a symmetric positive semi-definite matrix by its largest eigenvalue."""
+    """Normalize a symmetric positive semi-definite matrix by its largest eigenvalue in float64."""
     if mat.size == 0:
-        return mat.astype(np.float32)
+        return mat.astype(np.float64)
     evals = np.linalg.eigvalsh(mat)
     lmax = float(np.max(np.abs(evals))) if len(evals) > 0 else 1.0
     scale = max(lmax, 1.0)
-    return (mat / scale).astype(np.float32)
+    return (mat / scale).astype(np.float64)
+
+
+def _build_boundary_cycle_cochains(
+    sc: SimplicialComplex,
+    edge_orientations: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """Construct closed 1-cycle indicator cochains along inner hole boundaries (or winding 1-forms).
+
+    Transforms covariantly as ``C' = D @ C`` under arbitrary edge orientation flips
+    ``D = diag(+-1)``, making ``C.T @ h`` strictly gauge-invariant across all backbones.
+    """
+    n1 = sc.num_edges
+    loops = sc.metadata.get("hole_boundary_loops", [])
+    if n1 == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+
+    if loops:
+        c_mat = np.zeros((n1, len(loops)), dtype=np.float64)
+        for m, loop in enumerate(loops):
+            cyc = list(loop) + [loop[0]]
+            for u, v in zip(cyc[:-1], cyc[1:]):
+                ek = _canonical_edge(u, v)
+                eidx = sc.edge_to_idx[ek]
+                c_mat[eidx, m] += 1.0 if int(u) < int(v) else -1.0
+            norm_m = np.linalg.norm(c_mat[:, m])
+            if norm_m > 1e-12:
+                c_mat[:, m] /= norm_m
+    elif sc.coords is not None:
+        from .hodge import edge_winding_operator
+
+        c_mat = edge_winding_operator(sc)
+    else:
+        return np.zeros((n1, 0), dtype=np.float64)
+
+    if edge_orientations is not None:
+        signs = np.asarray(edge_orientations, dtype=np.float64).reshape(-1)
+        c_mat = signs[:, None] * c_mat
+    return c_mat
 
 
 def build_torch_operators(
     sc: SimplicialComplex,
     device: Optional[torch.device] = None,
+    dtype: torch.dtype = torch.float32,
+    edge_orientations: Optional[np.ndarray] = None,
 ) -> Dict[str, torch.Tensor]:
-    """Precompute normalized boundary, Laplacian, line-graph, and harmonic tensors."""
+    """Precompute normalized boundary, Laplacian, line-graph, harmonic, and cycle tensors.
+
+    Supports arbitrary per-edge orientation gauge ``edge_orientations`` in ``{-1, +1}^{N1}``
+    (``B1' = B1 @ D``, ``B2' = D @ B2``) while preserving full float64 precision before
+    casting to ``dtype``.
+    """
     if device is None:
         device = torch.device("cpu")
 
-    b1_np = sc.B1.astype(np.float32)
-    b2_np = sc.B2.astype(np.float32)
-    l0_np = graph_laplacian_0(sc)
-    l1_np, l1_down_np, l1_up_np = hodge_laplacian_1(sc, return_components=True)
+    b1_raw = sc.B1.copy()
+    b2_raw = sc.B2.copy()
+    signs: Optional[np.ndarray] = None
+    if edge_orientations is not None:
+        signs = np.asarray(edge_orientations, dtype=np.float64).reshape(-1)
+        if signs.shape[0] != sc.num_edges or not np.all(np.isin(np.abs(signs), [1.0])):
+            raise ValueError("edge_orientations must have shape (N1,) with entries in {-1, +1}.")
+        b1_raw = b1_raw * signs[None, :]
+        if sc.num_triangles > 0:
+            b2_raw = signs[:, None] * b2_raw
+
+    l0_np = b1_raw @ b1_raw.T
+    l1_down_np = b1_raw.T @ b1_raw
+    l1_up_np = (b2_raw @ b2_raw.T) if sc.num_triangles > 0 else np.zeros_like(l1_down_np)
+    l1_np = l1_down_np + l1_up_np
 
     l0_norm = _spectral_normalize(l0_np)
     l1_down_norm = _spectral_normalize(l1_down_np)
@@ -61,19 +117,21 @@ def build_torch_operators(
     lg_adj = np.abs(l1_down_np - np.diag(np.diag(l1_down_np)))
     deg_lg = np.sum(lg_adj, axis=1)
     inv_sqrt = np.where(deg_lg > 0, 1.0 / np.sqrt(np.maximum(deg_lg, 1e-8)), 0.0)
-    lg_norm = (inv_sqrt[:, None] * lg_adj * inv_sqrt[None, :]).astype(np.float32)
+    lg_norm = inv_sqrt[:, None] * lg_adj * inv_sqrt[None, :]
 
-    u_harm_np = harmonic_basis(sc).astype(np.float32)
+    u_harm_np = harmonic_basis(sc, edge_orientations=signs)
+    c_bnd_np = _build_boundary_cycle_cochains(sc, edge_orientations=signs)
 
     return {
-        "B1": torch.from_numpy(b1_np).to(device),
-        "B2": torch.from_numpy(b2_np).to(device),
-        "L0_norm": torch.from_numpy(l0_norm).to(device),
-        "L1_down_norm": torch.from_numpy(l1_down_norm).to(device),
-        "L1_up_norm": torch.from_numpy(l1_up_norm).to(device),
-        "L1_iso_norm": torch.from_numpy(l1_iso_norm).to(device),
-        "LG_norm": torch.from_numpy(lg_norm).to(device),
-        "U_harm": torch.from_numpy(u_harm_np).to(device),
+        "B1": torch.from_numpy(b1_raw).to(device=device, dtype=dtype),
+        "B2": torch.from_numpy(b2_raw).to(device=device, dtype=dtype),
+        "L0_norm": torch.from_numpy(l0_norm).to(device=device, dtype=dtype),
+        "L1_down_norm": torch.from_numpy(l1_down_norm).to(device=device, dtype=dtype),
+        "L1_up_norm": torch.from_numpy(l1_up_norm).to(device=device, dtype=dtype),
+        "L1_iso_norm": torch.from_numpy(l1_iso_norm).to(device=device, dtype=dtype),
+        "LG_norm": torch.from_numpy(lg_norm).to(device=device, dtype=dtype),
+        "U_harm": torch.from_numpy(u_harm_np).to(device=device, dtype=dtype),
+        "C_bnd": torch.from_numpy(c_bnd_np).to(device=device, dtype=dtype),
     }
 
 
@@ -184,7 +242,8 @@ class HodgeSimplicialNN(nn.Module):
     Decouples lower boundary coboundary diffusion (``L1_down = B1.T @ B1``),
     upper triangle curl diffusion (``L1_up = B2 @ B2.T``), and harmonic/self
     channels. When ``equivariant=True`` (default), biases are disabled and odd
-    ``tanh`` nonlinearities guarantee ``model(-x) == -model(x)`` identically.
+    ``tanh`` nonlinearities guarantee exact local edge-orientation gauge equivariance
+    ``F(D x, M; B1 D, D B2) = D F(x, M; B1, B2)`` for all ``D = diag(+-1)``.
     """
 
     def __init__(
@@ -196,12 +255,19 @@ class HodgeSimplicialNN(nn.Module):
         num_layers: int = 4,
         filter_order: int = 2,
         equivariant: bool = True,
+        edge_orientations: Optional[np.ndarray] = None,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
-        ops = build_torch_operators(sc)
-        self.register_buffer("L1_down_norm", ops["L1_down_norm"])
-        self.register_buffer("L1_up_norm", ops["L1_up_norm"])
-        self.register_buffer("U_harm", ops["U_harm"])
+        ops_f64 = build_torch_operators(
+            sc, dtype=torch.float64, edge_orientations=edge_orientations
+        )
+        self._ops_f64 = {
+            k: ops_f64[k] for k in ("L1_down_norm", "L1_up_norm", "U_harm")
+        }
+        self.register_buffer("L1_down_norm", ops_f64["L1_down_norm"].to(dtype=dtype))
+        self.register_buffer("L1_up_norm", ops_f64["L1_up_norm"].to(dtype=dtype))
+        self.register_buffer("U_harm", ops_f64["U_harm"].to(dtype=dtype))
 
         self.equivariant = equivariant
         use_bias = not equivariant
@@ -221,6 +287,17 @@ class HodgeSimplicialNN(nn.Module):
         )
         self.harm_proj = nn.Linear(hidden_channels, hidden_channels, bias=use_bias)
         self.out_proj = nn.Linear(hidden_channels * 2, out_channels, bias=use_bias)
+        if dtype != torch.float32:
+            self.to(dtype=dtype)
+
+    def _apply(self, fn):
+        super()._apply(fn)
+        if hasattr(self, "_ops_f64") and self.L1_down_norm.dtype == torch.float64:
+            dev = self.L1_down_norm.device
+            self.L1_down_norm.copy_(self._ops_f64["L1_down_norm"].to(device=dev))
+            self.L1_up_norm.copy_(self._ops_f64["L1_up_norm"].to(device=dev))
+            self.U_harm.copy_(self._ops_f64["U_harm"].to(device=dev))
+        return self
 
     def encode_edges(
         self,
@@ -236,7 +313,7 @@ class HodgeSimplicialNN(nn.Module):
                 # Re-anchor observed edges in latent space while remaining strictly odd in x
                 h = h + 0.25 * (mask * h0)
 
-        # Global harmonic subspace projection U_harm @ (U_harm.T @ h)
+        # Global harmonic subspace projection (U_harm @ U_harm.T) @ h @ W_harm.T
         if self.U_harm.shape[1] > 0:
             harm_coeff = _op_mul(self.U_harm.transpose(0, 1).contiguous(), h)
             h_harm = _op_mul(self.U_harm, self.harm_proj(harm_coeff))
@@ -258,6 +335,31 @@ class HodgeSimplicialNN(nn.Module):
             out = m_3d * x_3d + (1.0 - m_3d) * out + 0.15 * (m_3d * (out - x_3d))
         return _restore_edge_output(out, orig_mode)
 
+    def with_edge_orientations(
+        self,
+        sc: SimplicialComplex,
+        edge_orientations: np.ndarray,
+    ) -> "HodgeSimplicialNN":
+        """Clone learnable parameters onto ``sc`` with gauge-flipped edge orientations ``D = diag(+-1)``."""
+        clone = HodgeSimplicialNN(
+            sc=sc,
+            in_channels=self.in_proj.in_features,
+            hidden_channels=self.in_proj.out_features,
+            out_channels=self.out_proj.out_features,
+            num_layers=len(self.layers),
+            filter_order=self.layers[0].filter_order if len(self.layers) > 0 else 2,
+            equivariant=self.equivariant,
+            edge_orientations=edge_orientations,
+            dtype=self.in_proj.weight.dtype,
+        ).to(device=self.in_proj.weight.device)
+        src_params = dict(self.named_parameters())
+        with torch.no_grad():
+            for name, p_dst in clone.named_parameters():
+                p_dst.copy_(src_params[name])
+        if not self.training:
+            clone.eval()
+        return clone
+
 
 class NodeGCNEdgePredictor(nn.Module):
     """Node-level L0 GCN followed by antisymmetric edge difference readout ``h_j - h_i``.
@@ -276,11 +378,16 @@ class NodeGCNEdgePredictor(nn.Module):
         out_channels: int = 1,
         num_layers: int = 4,
         equivariant: bool = True,
+        edge_orientations: Optional[np.ndarray] = None,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
-        ops = build_torch_operators(sc)
-        self.register_buffer("B1", ops["B1"])
-        self.register_buffer("L0_norm", ops["L0_norm"])
+        ops_f64 = build_torch_operators(
+            sc, dtype=torch.float64, edge_orientations=edge_orientations
+        )
+        self._ops_f64 = {k: ops_f64[k] for k in ("B1", "L0_norm")}
+        self.register_buffer("B1", ops_f64["B1"].to(dtype=dtype))
+        self.register_buffer("L0_norm", ops_f64["L0_norm"].to(dtype=dtype))
 
         use_bias = not equivariant
         self.act = torch.tanh if equivariant else nn.GELU()
@@ -293,6 +400,16 @@ class NodeGCNEdgePredictor(nn.Module):
             [nn.Linear(hidden_channels, hidden_channels, bias=use_bias) for _ in range(num_layers)]
         )
         self.node_out = nn.Linear(hidden_channels, out_channels, bias=use_bias)
+        if dtype != torch.float32:
+            self.to(dtype=dtype)
+
+    def _apply(self, fn):
+        super()._apply(fn)
+        if hasattr(self, "_ops_f64") and self.B1.dtype == torch.float64:
+            dev = self.B1.device
+            self.B1.copy_(self._ops_f64["B1"].to(device=dev))
+            self.L0_norm.copy_(self._ops_f64["L0_norm"].to(device=dev))
+        return self
 
     def encode_edges(
         self,
@@ -319,6 +436,30 @@ class NodeGCNEdgePredictor(nn.Module):
         out = self.node_out(edge_diff)
         return _restore_edge_output(out, orig_mode)
 
+    def with_edge_orientations(
+        self,
+        sc: SimplicialComplex,
+        edge_orientations: np.ndarray,
+    ) -> "NodeGCNEdgePredictor":
+        """Clone learnable parameters onto ``sc`` with gauge-flipped edge orientations ``D = diag(+-1)``."""
+        clone = NodeGCNEdgePredictor(
+            sc=sc,
+            in_channels=self.in_proj.in_features,
+            hidden_channels=self.in_proj.out_features,
+            out_channels=self.node_out.out_features,
+            num_layers=len(self.self_lins),
+            equivariant=self.in_proj.bias is None,
+            edge_orientations=edge_orientations,
+            dtype=self.in_proj.weight.dtype,
+        ).to(device=self.in_proj.weight.device)
+        src_params = dict(self.named_parameters())
+        with torch.no_grad():
+            for name, p_dst in clone.named_parameters():
+                p_dst.copy_(src_params[name])
+        if not self.training:
+            clone.eval()
+        return clone
+
 
 class EdgeLineGraphGCN(nn.Module):
     """Undirected Line-Graph / Conflated Isotropic L1 Edge GCN Baseline.
@@ -334,14 +475,19 @@ class EdgeLineGraphGCN(nn.Module):
         in_channels: int = 1,
         hidden_channels: int = 32,
         out_channels: int = 1,
-        num_layers: int = 3,
+        num_layers: int = 4,
         equivariant: bool = True,
+        edge_orientations: Optional[np.ndarray] = None,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
-        ops = build_torch_operators(sc)
+        ops_f64 = build_torch_operators(
+            sc, dtype=torch.float64, edge_orientations=edge_orientations
+        )
         # Unsigned undirected line-graph operator conflating edge orientations & simplices
-        conflated_op = 0.75 * ops["LG_norm"] + 0.25 * ops["L1_iso_norm"]
-        self.register_buffer("op_conflated", conflated_op)
+        conflated_f64 = 0.75 * ops_f64["LG_norm"] + 0.25 * ops_f64["L1_iso_norm"]
+        self._op_conflated_f64 = conflated_f64
+        self.register_buffer("op_conflated", conflated_f64.to(dtype=dtype))
 
         use_bias = not equivariant
         self.act = torch.tanh if equivariant else nn.GELU()
@@ -354,6 +500,14 @@ class EdgeLineGraphGCN(nn.Module):
             [nn.Linear(hidden_channels, hidden_channels, bias=use_bias) for _ in range(num_layers)]
         )
         self.out_proj = nn.Linear(hidden_channels, out_channels, bias=use_bias)
+        if dtype != torch.float32:
+            self.to(dtype=dtype)
+
+    def _apply(self, fn):
+        super()._apply(fn)
+        if hasattr(self, "_op_conflated_f64") and self.op_conflated.dtype == torch.float64:
+            self.op_conflated.copy_(self._op_conflated_f64.to(device=self.op_conflated.device))
+        return self
 
     def encode_edges(
         self,
@@ -385,8 +539,9 @@ class EdgeMLP(nn.Module):
         in_channels: int = 1,
         hidden_channels: int = 32,
         out_channels: int = 1,
-        num_layers: int = 3,
+        num_layers: int = 4,
         equivariant: bool = True,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
         use_bias = not equivariant
@@ -397,6 +552,8 @@ class EdgeMLP(nn.Module):
             layers.append(nn.Linear(hidden_channels, hidden_channels, bias=use_bias))
         self.layers = nn.ModuleList(layers)
         self.out_proj = nn.Linear(hidden_channels, out_channels, bias=use_bias)
+        if dtype != torch.float32:
+            self.to(dtype=dtype)
 
     def encode_edges(
         self,
@@ -420,7 +577,12 @@ class EdgeMLP(nn.Module):
 
 
 class SimplicialTrajectoryClassifier(nn.Module):
-    """Topological trajectory classifier wrapping any edge representation backbone."""
+    """Gauge-invariant topological trajectory classifier with unified readout across backbones.
+
+    Pools latent 1-cochains via strictly ``D = diag(+-1)`` orientation-invariant L1/L2
+    norms and inner-boundary 1-cycle duality pairings ``C_bnd.T @ h``, applying the
+    exact same readout architecture and 4-layer depth across all four backbones.
+    """
 
     def __init__(
         self,
@@ -428,11 +590,16 @@ class SimplicialTrajectoryClassifier(nn.Module):
         backbone_type: str = "hodge_snn",
         hidden_channels: int = 32,
         num_classes: int = 4,
+        edge_orientations: Optional[np.ndarray] = None,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
         self.backbone_type = backbone_type
-        ops = build_torch_operators(sc)
-        self.register_buffer("U_harm", ops["U_harm"])
+        ops_f64 = build_torch_operators(
+            sc, dtype=torch.float64, edge_orientations=edge_orientations
+        )
+        self._c_bnd_f64 = ops_f64["C_bnd"]
+        self.register_buffer("C_bnd", ops_f64["C_bnd"].to(dtype=dtype))
 
         if backbone_type == "hodge_snn":
             self.backbone = HodgeSimplicialNN(
@@ -443,9 +610,10 @@ class SimplicialTrajectoryClassifier(nn.Module):
                 num_layers=4,
                 filter_order=2,
                 equivariant=True,
+                edge_orientations=edge_orientations,
+                dtype=dtype,
             )
             feat_dim = hidden_channels * 2
-            use_harmonic_readout = True
         elif backbone_type == "node_gcn":
             self.backbone = NodeGCNEdgePredictor(
                 sc,
@@ -454,55 +622,89 @@ class SimplicialTrajectoryClassifier(nn.Module):
                 out_channels=hidden_channels,
                 num_layers=4,
                 equivariant=True,
+                edge_orientations=edge_orientations,
+                dtype=dtype,
             )
             feat_dim = hidden_channels
-            use_harmonic_readout = False
         elif backbone_type == "isotropic_l1":
             self.backbone = EdgeLineGraphGCN(
                 sc,
                 in_channels=1,
                 hidden_channels=hidden_channels,
                 out_channels=hidden_channels,
-                num_layers=3,
+                num_layers=4,
                 equivariant=True,
+                edge_orientations=edge_orientations,
+                dtype=dtype,
             )
             feat_dim = hidden_channels
-            use_harmonic_readout = False
         elif backbone_type == "edge_mlp":
             self.backbone = EdgeMLP(
                 in_channels=1,
                 hidden_channels=hidden_channels,
                 out_channels=hidden_channels,
-                num_layers=3,
+                num_layers=4,
                 equivariant=True,
+                dtype=dtype,
             )
             feat_dim = hidden_channels
-            use_harmonic_readout = False
         else:
             raise ValueError(f"Unknown backbone_type '{backbone_type}'.")
 
-        self.use_harmonic_readout = use_harmonic_readout
-        beta_1 = int(self.U_harm.shape[1]) if use_harmonic_readout else 0
-        pool_dim = feat_dim * 2 + (beta_1 * feat_dim if use_harmonic_readout else 0)
+        n_cycles = int(self.C_bnd.shape[1])
+        pool_dim = feat_dim * (2 + n_cycles)
 
         self.classifier = nn.Sequential(
             nn.Linear(pool_dim, hidden_channels),
             nn.GELU(),
             nn.Linear(hidden_channels, num_classes),
         )
+        if dtype != torch.float32:
+            self.to(dtype=dtype)
+
+    def _apply(self, fn):
+        super()._apply(fn)
+        if hasattr(self, "_c_bnd_f64") and self.C_bnd.dtype == torch.float64:
+            self.C_bnd.copy_(self._c_bnd_f64.to(device=self.C_bnd.device))
+        return self
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_3d, _, _ = _format_edge_input(x)
         h = self.backbone.encode_edges(x_3d)  # (B, N1, feat_dim)
-        signed_mean = h.mean(dim=1)
-        energy_mean = torch.abs(h).mean(dim=1)
-        feats = [signed_mean, energy_mean]
-        if self.use_harmonic_readout and self.U_harm.shape[1] > 0:
-            # Project latent edge cochains onto harmonic basis: (B, beta_1, feat_dim)
-            harm_proj = _op_mul(self.U_harm.transpose(0, 1).contiguous(), h)
-            feats.append(harm_proj.reshape(h.shape[0], -1))
+        l1_pool = torch.abs(h).mean(dim=1)
+        rms_pool = torch.sqrt(torch.mean(h ** 2, dim=1) + 1e-8)
+        feats = [l1_pool, rms_pool]
+        if self.C_bnd.shape[1] > 0:
+            # Gauge-invariant 1-chain / 1-cochain boundary pairing: (D C_bnd)^T (D h) == C_bnd^T h
+            cycle_proj = _op_mul(self.C_bnd.transpose(0, 1).contiguous(), h)
+            feats.append(cycle_proj.reshape(h.shape[0], -1))
         pooled = torch.cat(feats, dim=-1)
         return self.classifier(pooled)
+
+    def with_edge_orientations(
+        self,
+        sc: SimplicialComplex,
+        edge_orientations: np.ndarray,
+    ) -> "SimplicialTrajectoryClassifier":
+        """Clone learnable parameters onto ``sc`` with gauge-flipped edge orientations ``D = diag(+-1)``."""
+        lin0 = self.classifier[0]
+        lin1 = self.classifier[2]
+        assert isinstance(lin0, nn.Linear) and isinstance(lin1, nn.Linear)
+        clone = SimplicialTrajectoryClassifier(
+            sc=sc,
+            backbone_type=self.backbone_type,
+            hidden_channels=lin0.out_features,
+            num_classes=lin1.out_features,
+            edge_orientations=edge_orientations,
+            dtype=lin0.weight.dtype,
+        ).to(device=lin0.weight.device)
+        src_params = dict(self.named_parameters())
+        with torch.no_grad():
+            for name, p_dst in clone.named_parameters():
+                p_dst.copy_(src_params[name])
+        if not self.training:
+            clone.eval()
+        return clone
 
 
 # ---------------------------------------------------------------------------
@@ -894,6 +1096,15 @@ def train_and_eval_homotopy_classification(
 
     x_tr, y_tr = train_ds["x"], train_ds["y"]
     x_te, y_te = test_ds["x"], test_ds["y"]
+
+    # The four generated loop classes have signed winding around the two cavities.
+    # Fit a geometric control on the same training samples and score the held-out radii.
+    basis = harmonic_basis(sc)
+    train_coords = x_tr.squeeze(-1).numpy() @ basis
+    test_coords = x_te.squeeze(-1).numpy() @ basis
+    centers = np.stack([train_coords[y_tr.numpy() == c].mean(axis=0) for c in range(4)])
+    distances = np.linalg.norm(test_coords[:, None, :] - centers[None, :, :], axis=-1)
+    accuracies["HarmonicCentroid"] = float(np.mean(distances.argmin(axis=1) == y_te.numpy()))
 
     for label, btype in specs:
         torch.manual_seed(seed)

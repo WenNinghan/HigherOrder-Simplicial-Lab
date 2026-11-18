@@ -69,25 +69,29 @@ def compute_betti_numbers(
     """
     if method == "svd":
         s1 = np.linalg.svd(sc.B1, compute_uv=False) if sc.num_edges > 0 else np.array([])
-        rank_b1 = int(np.sum(s1 > tol))
+        tol_s1 = tol * max(1.0, float(s1[0])) if len(s1) > 0 else tol
+        rank_b1 = int(np.sum(s1 > tol_s1))
         s2 = (
             np.linalg.svd(sc.B2, compute_uv=False)
             if (sc.num_triangles > 0 and sc.num_edges > 0)
             else np.array([])
         )
-        rank_b2 = int(np.sum(s2 > tol))
+        tol_s2 = tol * max(1.0, float(s2[0])) if len(s2) > 0 else tol
+        rank_b2 = int(np.sum(s2 > tol_s2))
         beta_0 = int(sc.num_nodes - rank_b1)
         beta_1 = int(sc.num_edges - rank_b1 - rank_b2)
         return beta_0, beta_1
     elif method == "spectral":
         l0 = graph_laplacian_0(sc)
         evals0 = np.linalg.eigvalsh(l0)
-        beta_0 = int(np.sum(np.abs(evals0) <= tol))
+        tol_l0 = tol * max(1.0, float(np.max(np.abs(evals0)))) if len(evals0) > 0 else tol
+        beta_0 = int(np.sum(np.abs(evals0) <= tol_l0))
         if sc.num_edges == 0:
             return beta_0, 0
         l1 = hodge_laplacian_1(sc)
         evals1 = np.linalg.eigvalsh(l1)
-        beta_1 = int(np.sum(np.abs(evals1) <= tol))
+        tol_l1 = tol * max(1.0, float(np.max(np.abs(evals1)))) if len(evals1) > 0 else tol
+        beta_1 = int(np.sum(np.abs(evals1) <= tol_l1))
         return beta_0, beta_1
     else:
         raise ValueError(f"Unknown Betti computation method '{method}'. Choose 'svd' or 'spectral'.")
@@ -128,13 +132,26 @@ def harmonic_basis(
     sc: SimplicialComplex,
     tol: float = 1e-8,
     align_to_holes: bool = True,
+    edge_orientations: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Return an orthonormal basis ``U_harm`` of shape ``(N1, beta_1)`` spanning ``ker(L1)``."""
     if sc.num_edges == 0:
         return np.zeros((0, 0), dtype=np.float64)
-    l1 = hodge_laplacian_1(sc)
+
+    signs: Optional[np.ndarray] = None
+    if edge_orientations is not None:
+        signs = np.asarray(edge_orientations, dtype=np.float64).reshape(-1)
+        if signs.shape[0] != sc.num_edges or not np.all(np.isin(np.abs(signs), [1.0])):
+            raise ValueError("edge_orientations must have shape (N1,) with entries in {-1, +1}.")
+        b1_s = sc.B1 * signs[None, :]
+        b2_s = signs[:, None] * sc.B2 if sc.num_triangles > 0 else sc.B2
+        l1 = b1_s.T @ b1_s + (b2_s @ b2_s.T if sc.num_triangles > 0 else 0.0)
+    else:
+        l1 = hodge_laplacian_1(sc)
+
     evals, evecs = np.linalg.eigh(l1)
-    mask = np.abs(evals) <= tol
+    tol_eff = tol * max(1.0, float(np.max(np.abs(evals)))) if len(evals) > 0 else tol
+    mask = np.abs(evals) <= tol_eff
     u_harm = evecs[:, mask]
     beta_1 = u_harm.shape[1]
 
@@ -147,6 +164,8 @@ def harmonic_basis(
         centers = sc.metadata["hole_centers"]
         if len(centers) == beta_1:
             w_forms = edge_winding_operator(sc, centers)
+            if signs is not None:
+                w_forms = signs[:, None] * w_forms
             # Orthogonal Procrustes alignment inside ker(L1) so U_harm remains strictly orthonormal
             coupling = u_harm.T @ w_forms
             u_svd, _, vt_svd = np.linalg.svd(coupling)

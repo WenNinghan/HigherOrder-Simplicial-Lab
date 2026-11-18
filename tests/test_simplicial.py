@@ -5,10 +5,14 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from scripts.evaluate_mesh_transfer import copy_trainable, spectral_completion
+
+
 from simplicial_lab import (
     HodgeSimplicialNN,
     NodeGCNEdgePredictor,
     SimplicialComplex,
+    SimplicialTrajectoryClassifier,
     compute_betti_numbers,
     cycle_complex,
     helmholtz_hodge_decomposition,
@@ -142,19 +146,68 @@ def test_orientation_equivariance_and_solenoidal_expressivity() -> None:
     )
 
 
+def test_random_local_edge_orientation_gauge_equivariance() -> None:
+    """Verify strict equivariance f_{D}(D x) = D f(x) under randomized D = diag(+-1)."""
+    sc = planar_punctured_complex()
+    rng = np.random.default_rng(2026)
+    torch.manual_seed(99)
+
+    hodge_f32 = HodgeSimplicialNN(sc, hidden_channels=24, num_layers=4, equivariant=True, dtype=torch.float32).eval()
+    hodge_f64 = HodgeSimplicialNN(sc, hidden_channels=24, num_layers=4, equivariant=True, dtype=torch.float64).eval()
+    node_f64 = NodeGCNEdgePredictor(sc, hidden_channels=24, num_layers=4, equivariant=True, dtype=torch.float64).eval()
+    clf_f64 = SimplicialTrajectoryClassifier(sc, backbone_type="hodge_snn", hidden_channels=24, dtype=torch.float64).eval()
+
+    x_batch_f64 = torch.randn(4, sc.num_edges, 1, dtype=torch.float64)
+    mask_batch_f64 = (torch.rand(4, sc.num_edges, 1, dtype=torch.float64) > 0.35).double()
+    x_batch_f32 = x_batch_f64.float()
+    mask_batch_f32 = mask_batch_f64.float()
+
+    for _ in range(5):
+        signs = rng.choice([-1.0, 1.0], size=sc.num_edges)
+        d64 = torch.from_numpy(signs).double().view(1, sc.num_edges, 1)
+        d32 = d64.float()
+
+        hodge_f32_d = hodge_f32.with_edge_orientations(sc, signs)
+        hodge_f64_d = hodge_f64.with_edge_orientations(sc, signs)
+        node_f64_d = node_f64.with_edge_orientations(sc, signs)
+        clf_f64_d = clf_f64.with_edge_orientations(sc, signs)
+
+        with torch.no_grad():
+            # 1. Float32 strict randomized D = diag(+-1) equivariance (< 1e-6)
+            y32 = hodge_f32(x_batch_f32, mask=mask_batch_f32)
+            y32_d = hodge_f32_d(d32 * x_batch_f32, mask=mask_batch_f32)
+            assert torch.max(torch.abs(y32_d - d32 * y32)).item() < 1e-6
+
+            # 2. Float64 machine-precision randomized D = diag(+-1) equivariance (< 1e-12)
+            y64 = hodge_f64(x_batch_f64, mask=mask_batch_f64)
+            y64_d = hodge_f64_d(d64 * x_batch_f64, mask=mask_batch_f64)
+            assert torch.max(torch.abs(y64_d - d64 * y64)).item() < 1e-12
+
+            # 3. NodeGCN strict D = diag(+-1) equivariance (< 1e-12)
+            yn64 = node_f64(x_batch_f64)
+            yn64_d = node_f64_d(d64 * x_batch_f64)
+            assert torch.max(torch.abs(yn64_d - d64 * yn64)).item() < 1e-12
+
+            # 4. SimplicialTrajectoryClassifier strict D = diag(+-1) gauge invariance (< 1e-12)
+            logits = clf_f64(x_batch_f64)
+            logits_d = clf_f64_d(d64 * x_batch_f64)
+            assert torch.max(torch.abs(logits_d - logits)).item() < 1e-12
+
+
 def test_homotopy_trajectory_classification_advantage() -> None:
     """Verify HodgeSimplicialNN outperforms NodeGCN on cavity homotopy loop classification."""
     sc = planar_punctured_complex()
     acc = train_and_eval_homotopy_classification(
         sc,
-        n_train_per_class=28,
-        n_test_per_class=20,
-        epochs=75,
-        hidden_channels=24,
+        n_train_per_class=45,
+        n_test_per_class=30,
+        epochs=120,
+        hidden_channels=32,
         seed=42,
     )
     assert acc["HodgeSimplicialNN"] > 0.80
     assert acc["HodgeSimplicialNN"] > acc["NodeGCN"] + 0.30
+    assert acc["HarmonicCentroid"] == 1.0
 
 
 def test_higher_order_contagion_bistability_and_hysteresis() -> None:
@@ -176,3 +229,21 @@ def test_higher_order_contagion_bistability_and_hysteresis() -> None:
         seed=42,
     )
     assert sweep_continuous.max_hysteresis_gap < 0.08
+
+
+def test_transfer_keeps_unseen_mesh_buffers_and_imputation_observations():
+    from simplicial_lab.models import SimplicialTrajectoryClassifier
+
+    source = planar_punctured_complex(seed=42)
+    unseen = planar_punctured_complex(nx=12, ny=8, hole_radius=.21, seed=1701)
+    fitted = SimplicialTrajectoryClassifier(source, hidden_channels=4)
+    target = SimplicialTrajectoryClassifier(unseen, hidden_channels=4)
+    original = target.backbone.L1_down_norm.clone()
+    copy_trainable(fitted, target)
+    assert source.num_edges != unseen.num_edges
+    assert torch.equal(target.backbone.L1_down_norm, original)
+    assert torch.equal(target.classifier[0].weight, fitted.classifier[0].weight)
+    data = {"x_obs": torch.tensor([[[2.], [0.], [2.]]]),
+            "mask_obs": torch.tensor([[[1.], [0.], [1.]]])}
+    predicted = spectral_completion(data, np.ones((3, 1)))
+    np.testing.assert_allclose(predicted, [[2., 2., 2.]])

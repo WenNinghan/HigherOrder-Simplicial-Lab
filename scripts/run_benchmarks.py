@@ -36,6 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.evaluate_linear_imputation import evaluate_linear_control
 from simplicial_lab import (
     HodgeSimplicialNN,
     NodeGCNEdgePredictor,
@@ -717,12 +718,35 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
     eta_grid = [0.0, 0.25, 0.50, 0.75, 1.00]
     model_names = ["NodeGCN", "EdgeMLP", "Isotropic-L1-GCN", "HodgeSimplicialNN"]
 
-    # Check exact orientation equivariance error in float64
+    # Check exact global and randomized local D=diag(+-1) orientation equivariance
     torch.manual_seed(42)
-    net_eq = HodgeSimplicialNN(sc, equivariant=True).double().eval()
+    rng_eq = np.random.default_rng(42)
+    rand_signs = rng_eq.choice([-1.0, 1.0], size=sc.num_edges)
+
+    net_eq = HodgeSimplicialNN(sc, equivariant=True, dtype=torch.float64).eval()
+    net_eq_d = net_eq.with_edge_orientations(sc, rand_signs)
     x_probe = torch.randn(sc.num_edges, 1, dtype=torch.float64)
+    m_probe = (torch.rand(sc.num_edges, 1, dtype=torch.float64) > 0.4).double()
+    d_col64 = torch.from_numpy(rand_signs).double().unsqueeze(-1)
+
+    net_eq32 = HodgeSimplicialNN(sc, equivariant=True, dtype=torch.float32).eval()
+    net_eq32_d = net_eq32.with_edge_orientations(sc, rand_signs)
+    x_probe32 = x_probe.float()
+    m_probe32 = m_probe.float()
+    d_col32 = d_col64.float()
+
     with torch.no_grad():
         equiv_err = float(torch.max(torch.abs(net_eq(-x_probe) + net_eq(x_probe))).item())
+        gauge_err_f64 = float(
+            torch.max(
+                torch.abs(net_eq_d(d_col64 * x_probe, mask=m_probe) - d_col64 * net_eq(x_probe, mask=m_probe))
+            ).item()
+        )
+        gauge_err_f32 = float(
+            torch.max(
+                torch.abs(net_eq32_d(d_col32 * x_probe32, mask=m_probe32) - d_col32 * net_eq32(x_probe32, mask=m_probe32))
+            ).item()
+        )
 
     imputation_curves: Dict[str, Dict[str, List[float]]] = {
         m: {"r2": [], "mse": []} for m in model_names
@@ -746,7 +770,8 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
 
     # Multi-seed homotopy trajectory classification
     seeds = [42, 101, 202]
-    homotopy_runs: Dict[str, List[float]] = {m: [] for m in model_names}
+    classification_models = [*model_names, "HarmonicCentroid"]
+    homotopy_runs: Dict[str, List[float]] = {m: [] for m in classification_models}
     for sd in seeds:
         acc_sd = train_and_eval_homotopy_classification(
             sc,
@@ -757,12 +782,35 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
             lr=3e-3,
             seed=sd,
         )
-        for m in model_names:
+        for m in classification_models:
             homotopy_runs[m].append(acc_sd[m])
 
-    homotopy_mean = {m: float(np.mean(homotopy_runs[m])) for m in model_names}
-    homotopy_std = {m: float(np.std(homotopy_runs[m])) for m in model_names}
+    homotopy_mean = {m: float(np.mean(runs)) for m, runs in homotopy_runs.items()}
+    homotopy_std = {m: float(np.std(runs)) for m, runs in homotopy_runs.items()}
 
+    summary = {
+        "orientation_equivariance_max_error_float64": equiv_err,
+        "random_gauge_diag_pm1_max_error_float64": gauge_err_f64,
+        "random_gauge_diag_pm1_max_error_float32": gauge_err_f32,
+        "eta_solenoidal_grid": eta_grid,
+        "imputation_by_model": imputation_curves,
+        "homotopy_accuracy_mean": homotopy_mean,
+        "homotopy_accuracy_std": homotopy_std,
+        "linear_imputation_control": evaluate_linear_control(),
+        "homotopy_seeds": seeds,
+        "homotopy_accuracy_by_seed": homotopy_runs,
+    }
+
+    plot_snn_benchmarks(assets_dir, summary)
+    return summary
+
+
+def plot_snn_benchmarks(assets_dir: Path, summary: Dict[str, Any]) -> None:
+    eta_grid = summary["eta_solenoidal_grid"]
+    imputation_curves = summary["imputation_by_model"]
+    homotopy_mean = summary["homotopy_accuracy_mean"]
+    homotopy_std = summary["homotopy_accuracy_std"]
+    model_names = list(imputation_curves)
     # High-contrast academic journal palette
     palette = {
         "NodeGCN": "#1B4F72",            # Navy
@@ -803,11 +851,14 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
             label=display_labels[m],
         )
 
+    linear_r2 = [row["missing_r2"] for row in summary["linear_imputation_control"]["rows"]]
+    ax1.plot(pct_grid, linear_r2, color="#202020", ls=":", lw=2, marker="+",
+             label="Training-flow subspace (linear)")
     ax1.axhline(0.0, color="#5D6D7E", linestyle="--", linewidth=1.05, zorder=2)
     # Placed cleanly in empty mid-upper space so pointer arrow crosses zero curves
     idx_75 = eta_grid.index(0.75)
     ax1.annotate(
-        "NodeGCN blind to curl + harmonic\n($\\mathrm{im}(\\mathbf{B}_1^\\top) \\bot \\ker(\\mathbf{B}_1)$)",
+        "NodeGCN output lies in gradient space\n($\\mathrm{im}(\\mathbf{B}_1^\\top) \\bot \\ker(\\mathbf{B}_1)$)",
         xy=(100.0, imputation_curves["NodeGCN"]["r2"][-1]),
         xytext=(38.0, 0.72),
         fontsize=8.4,
@@ -893,7 +944,7 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
         fontweight="bold",
     )
     ax2.set_ylabel("Benchmark Score [% / $R^2 \\times 100$]")
-    ax2.set_title("(b) Out-of-Distribution Homotopy Classification & Imputation", pad=8)
+    ax2.set_title("(b) Same-Mesh Radius Transfer & Imputation", pad=8)
     ax2.set_ylim(0.0, 117.0)
 
     legend_proxies = [
@@ -911,6 +962,10 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
             label="Mixed-Flow ($\\eta_{\\mathrm{sol}} = 75\\%$) $R^2 \\times 100$",
         ),
     ]
+    centroid_accuracy = 100.0 * homotopy_mean["HarmonicCentroid"]
+    reference = ax2.axhline(centroid_accuracy, color="#333333", ls=":", lw=1.3,
+                            label=f"Harmonic centroid (classification): {centroid_accuracy:.1f}%")
+    legend_proxies.append(reference)
     ax2.legend(
         handles=legend_proxies,
         loc="upper left",
@@ -921,7 +976,7 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
     )
 
     fig.suptitle(
-        "Simplicial Deep Learning Benchmark: Decoupled Hodge Convolutions vs. Pairwise & Isotropic Baselines",
+        "Missing Edge Flows and Loop Classification on a Two-Hole Mesh",
         fontsize=12.5,
         fontweight="bold",
     )
@@ -931,13 +986,6 @@ def generate_figure_3_snn_benchmarks(assets_dir: Path) -> Dict[str, Any]:
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    return {
-        "orientation_equivariance_max_error_float64": equiv_err,
-        "eta_solenoidal_grid": eta_grid,
-        "imputation_by_model": imputation_curves,
-        "homotopy_accuracy_mean": homotopy_mean,
-        "homotopy_accuracy_std": homotopy_std,
-    }
 
 
 def generate_figure_4_spectrum(assets_dir: Path) -> Dict[str, Any]:
@@ -1164,6 +1212,51 @@ def generate_figure_4_spectrum(assets_dir: Path) -> Dict[str, Any]:
     }
 
 
+def write_benchmark_table(results_dir: Path, snn_summary: Dict[str, Any]) -> pd.DataFrame:
+    eta_grid = snn_summary["eta_solenoidal_grid"]
+    idx_0 = eta_grid.index(0.0)
+    idx_50 = eta_grid.index(0.5)
+    idx_75 = eta_grid.index(0.75)
+    idx_100 = eta_grid.index(1.0)
+
+    rows: List[Dict[str, Any]] = []
+    for m in ["NodeGCN", "EdgeMLP", "Isotropic-L1-GCN", "HodgeSimplicialNN"]:
+        r2_list = snn_summary["imputation_by_model"][m]["r2"]
+        mse_list = snn_summary["imputation_by_model"][m]["mse"]
+        rows.append(
+            {
+                "Model": m,
+                "Imputation_R2_GradOnly_eta0": round(r2_list[idx_0], 4),
+                "Imputation_R2_Balanced_eta50": round(r2_list[idx_50], 4),
+                "Imputation_R2_MixedSolenoidal_eta75": round(r2_list[idx_75], 4),
+                "Imputation_R2_PureSolenoidal_eta100": round(r2_list[idx_100], 4),
+                "Imputation_MSE_MixedSolenoidal_eta75": round(mse_list[idx_75], 4),
+                "Homotopy_Acc_Mean": round(snn_summary["homotopy_accuracy_mean"][m], 4),
+                "Homotopy_Acc_Std": round(snn_summary["homotopy_accuracy_std"][m], 4),
+            }
+        )
+
+    rows.append({
+        "Model": "HarmonicCentroid",
+        "Homotopy_Acc_Mean": round(snn_summary["homotopy_accuracy_mean"]["HarmonicCentroid"], 4),
+        "Homotopy_Acc_Std": round(snn_summary["homotopy_accuracy_std"]["HarmonicCentroid"], 4),
+    })
+    control = snn_summary["linear_imputation_control"]["rows"]
+    rows.append({
+        "Model": "TrainingFlowSubspace",
+        "Imputation_R2_GradOnly_eta0": control[idx_0]["missing_r2"],
+        "Imputation_R2_Balanced_eta50": control[idx_50]["missing_r2"],
+        "Imputation_R2_MixedSolenoidal_eta75": control[idx_75]["missing_r2"],
+        "Imputation_R2_PureSolenoidal_eta100": control[idx_100]["missing_r2"],
+        "Imputation_MSE_MixedSolenoidal_eta75": control[idx_75]["missing_mse"],
+    })
+    df = pd.DataFrame(rows)
+    csv_path = results_dir / "benchmark_table.csv"
+    df.to_csv(csv_path, index=False)
+
+    return df
+
+
 def main() -> None:
     t0 = time.perf_counter()
     _setup_plot_style()
@@ -1212,32 +1305,7 @@ def main() -> None:
         json.dump(summary, f, indent=2)
 
     # Build clean tabular CSV summary across models
-    eta_grid = snn_summary["eta_solenoidal_grid"]
-    idx_0 = eta_grid.index(0.0)
-    idx_50 = eta_grid.index(0.5)
-    idx_75 = eta_grid.index(0.75)
-    idx_100 = eta_grid.index(1.0)
-
-    rows: List[Dict[str, Any]] = []
-    for m in ["NodeGCN", "EdgeMLP", "Isotropic-L1-GCN", "HodgeSimplicialNN"]:
-        r2_list = snn_summary["imputation_by_model"][m]["r2"]
-        mse_list = snn_summary["imputation_by_model"][m]["mse"]
-        rows.append(
-            {
-                "Model": m,
-                "Imputation_R2_GradOnly_eta0": round(r2_list[idx_0], 4),
-                "Imputation_R2_Balanced_eta50": round(r2_list[idx_50], 4),
-                "Imputation_R2_MixedSolenoidal_eta75": round(r2_list[idx_75], 4),
-                "Imputation_R2_PureSolenoidal_eta100": round(r2_list[idx_100], 4),
-                "Imputation_MSE_MixedSolenoidal_eta75": round(mse_list[idx_75], 4),
-                "Homotopy_Acc_Mean": round(snn_summary["homotopy_accuracy_mean"][m], 4),
-                "Homotopy_Acc_Std": round(snn_summary["homotopy_accuracy_std"][m], 4),
-            }
-        )
-
-    df = pd.DataFrame(rows)
-    csv_path = results_dir / "benchmark_table.csv"
-    df.to_csv(csv_path, index=False)
+    df = write_benchmark_table(results_dir, snn_summary)
 
     print(f"\nAll benchmarks complete in {elapsed:.2f}s!")
     print(df.to_string(index=False))

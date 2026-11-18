@@ -51,7 +51,7 @@ class SimplicialComplex:
             for i, j, k in tri_set:
                 edge_set.add((i, j))
                 edge_set.add((i, k))
-                edge_set.add((j, j) if False else (j, k))
+                edge_set.add((j, k))
         else:
             for i, j, k in tri_set:
                 missing = [e for e in ((i, j), (i, k), (j, k)) if e not in edge_set]

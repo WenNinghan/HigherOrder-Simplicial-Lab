@@ -1,0 +1,39 @@
+{
+  "train_seed": 42,
+  "test_seed": 10042,
+  "train_count": 150,
+  "test_count": 60,
+  "masked_fraction": 0.4,
+  "rows": [
+    {
+      "solenoidal_fraction": 0.0,
+      "train_rank": 10,
+      "missing_r2": 0.9999339369609782,
+      "missing_mse": 6.619707710342482e-05
+    },
+    {
+      "solenoidal_fraction": 0.25,
+      "train_rank": 22,
+      "missing_r2": 0.9998339640283926,
+      "missing_mse": 0.00016570249863434583
+    },
+    {
+      "solenoidal_fraction": 0.5,
+      "train_rank": 22,
+      "missing_r2": 0.9998332220624193,
+      "missing_mse": 0.00016611891624052078
+    },
+    {
+      "solenoidal_fraction": 0.75,
+      "train_rank": 22,
+      "missing_r2": 0.9998326064514547,
+      "missing_mse": 0.00016653513011988252
+    },
+    {
+      "solenoidal_fraction": 1.0,
+      "train_rank": 12,
+      "missing_r2": 0.9999173374690449,
+      "missing_mse": 8.231447282014415e-05
+    }
+  ]
+}
