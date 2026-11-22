@@ -31,7 +31,7 @@ On the original two-hole mesh, training on tight loops and testing on wider, noi
 
 ![Simplicial Phase Transition](assets/simplicial_phase_transition.png)
 
-Incorporating synergistic 3-body 2-simplex interactions ($`\lambda_{2} = 2.8 > 1`$) transforms classical continuous epidemic/reaction onset ($`\lambda_{2} = 0.8 < 1`$) into an **explosive discontinuous first-order tipping point** with a wide bistable hysteresis loop ($`\Delta \rho_{\max} = 0.6139`$ across $`\lambda_{1} \in [0.547, 1.000]`$), separating sub-threshold decay from self-sustaining endemic activation across an unstable separatrix $`\rho_{-}^{*}`$.
+Incorporating synergistic 3-body 2-simplex interactions ($`\lambda_{2} = 2.8 \gt 1`$) transforms classical continuous epidemic/reaction onset ($`\lambda_{2} = 0.8 \lt 1`$) into an **explosive discontinuous first-order tipping point** with a wide bistable hysteresis loop ($`\Delta \rho_{\max} = 0.6139`$ across $`\lambda_{1} \in [0.547, 1.000]`$), separating sub-threshold decay from self-sustaining endemic activation across an unstable separatrix $`\rho_{-}^{*}`$.
 
 ### 4. Spectral Topology of the 1-Hodge Laplacian Under Cavity Surgery
 
@@ -45,7 +45,7 @@ As 2-simplices progressively fill open triangular faces of the 1-skeleton, local
 
 ### 1. Oriented Simplicial Complexes & Exact Chain Boundaries
 
-An abstract 2-simplicial complex $`\mathcal{K} = (\mathcal{V}, \mathcal{E}, \mathcal{T})`$ consists of $`N_{0}`$ vertices (0-simplices), $`N_{1}`$ canonically oriented edges $`[i, j]`$ ($`i < j`$), and $`N_{2}`$ canonically oriented filled triangles $`[i, j, k]`$ ($`i < j < k`$), closed under taking faces. The signed boundary operators $`B_{1} \in \{-1, 0, +1\}^{N_{0} \times N_{1}}`$ and $`B_{2} \in \{-1, 0, +1\}^{N_{1} \times N_{2}}`$ act on canonical chains via:
+An abstract 2-simplicial complex $`\mathcal{K} = (\mathcal{V}, \mathcal{E}, \mathcal{T})`$ consists of $`N_{0}`$ vertices (0-simplices), $`N_{1}`$ canonically oriented edges $`[i, j]`$ ($`i \lt j`$), and $`N_{2}`$ canonically oriented filled triangles $`[i, j, k]`$ ($`i \lt j \lt k`$), closed under taking faces. The signed boundary operators $`B_{1} \in \{-1, 0, +1\}^{N_{0} \times N_{1}}`$ and $`B_{2} \in \{-1, 0, +1\}^{N_{1} \times N_{2}}`$ act on canonical chains via:
 
 ```math
 \partial_{1}[i, j] = [j] - [i], \qquad \partial_{2}[i, j, k] = [j, k] - [i, k] + [i, j]
@@ -85,7 +85,7 @@ To respect cochain physics and decoupled Hodge subspaces, each layer of `HodgeSi
 H^{(l+1)} = H^{(l)} + \tanh\!\left( H^{(l)} W_{0}^{(l)} + (M \odot H^{(l)}) W_{\mathrm{obs}}^{(l)} + \sum_{k=1}^{K} \hat{L}_{1,\mathrm{down}}^{k} H^{(l)} W_{\mathrm{down}, k}^{(l)} + \sum_{k=1}^{K} \hat{L}_{1,\mathrm{up}}^{k} H^{(l)} W_{\mathrm{up}, k}^{(l)} \right)
 ```
 
-The readout includes the harmonic projector. For a diagonal matrix $D$ of independently selected edge signs, transform the input to $Dx$, the boundaries to $B_1D$ and $DB_2$, and keep the observation mask fixed. The edge output transforms by $D$. The benchmark reports both the global sign-reversal check and a random local reorientation. The classifier pools absolute magnitudes, RMS magnitudes and pairings with consistently oriented cavity boundaries; its output is invariant to these choices of edge orientation.
+The readout includes the harmonic projector. For a diagonal matrix $`D`$ of independently selected edge signs, transform the input to $`Dx`$, the boundaries to $`B_1D`$ and $`DB_2`$, and keep the observation mask fixed. The edge output transforms by $`D`$. The benchmark reports both the global sign-reversal check and a random local reorientation. The classifier pools absolute magnitudes, RMS magnitudes and pairings with consistently oriented cavity boundaries; its output is invariant to these choices of edge orientation.
 
 ### 4. Higher-Order Simplicial Contagion & Synergistic Bifurcations
 
@@ -128,7 +128,7 @@ For each of three seeds (42, 101 and 202), we trained on a 13 × 9 mesh with 244
 
 ![Loop accuracy and missing-edge R-squared by source and held-out mesh](assets/mesh_transfer.png)
 
-The orange line separates the source-mesh control from unseen meshes. All four learned classifiers receive the same ordered cavity-boundary pooling. The harmonic centroid uses the ordered target hole centers to orient its two coordinates. Only source labels enter the centroids. Each column uses the same test signals for every method and training seed.
+The dashed red line separates the source-mesh control from unseen meshes. All four learned classifiers receive the same ordered cavity-boundary pooling. The harmonic centroid uses the ordered target hole centers to orient its two coordinates. Only source labels enter the centroids. Each column uses the same test signals for every method and training seed.
 
 | Metric / method | Source control · 244 edges | Coarse · 212 edges | Shifted · 398 edges | Fine · 474 edges |
 | --- | ---: | ---: | ---: | ---: |
@@ -137,14 +137,18 @@ The orange line separates the source-mesh control from unseen meshes. All four l
 | Loop accuracy · isotropic L1 | 58.75% | 52.08% | 35.21% | 42.29% |
 | Loop accuracy · edge MLP | 54.38% | 46.67% | 34.38% | 36.46% |
 | Loop accuracy · node GCN | 24.38% | 26.04% | 28.75% | 25.62% |
-| Missing-edge R² · HodgeSNN | 0.9256 | 0.9063 | 0.9386 | 0.9397 |
-| Missing-edge R² · isotropic L1 | 0.4865 | 0.4465 | 0.5367 | 0.5169 |
-| Missing-edge R² · low Hodge modes | 0.6420 | 0.6209 | 0.7007 | 0.7046 |
-| Missing-edge R² · known generator modes | 0.999842 | 0.999821 | 0.999907 | 0.999917 |
+| Smooth 22-mode flow $`R^2`$ · HodgeSNN | 0.9256 | 0.9063 | 0.9386 | 0.9397 |
+| Smooth 22-mode flow $`R^2`$ · isotropic L1 | 0.4865 | 0.4465 | 0.5367 | 0.5169 |
+| Smooth 22-mode flow $`R^2`$ · low Hodge modes | 0.6420 | 0.6209 | 0.7007 | 0.7046 |
+| Smooth 22-mode flow $`R^2`$ · known 22-mode basis | 0.9998 | 0.9998 | 0.9999 | 0.9999 |
+| **Full-rank localized vortex $`R^2`$ · HodgeSNN** | **0.8171** | **0.7801** | **0.8556** | **0.8514** |
+| Full-rank localized vortex $`R^2`$ · isotropic L1 | 0.3361 | 0.2910 | 0.3750 | 0.3758 |
+| Full-rank localized vortex $`R^2`$ · node GCN | 0.1080 | 0.0971 | 0.1242 | 0.1185 |
+| Full-rank localized vortex $`R^2`$ · low Hodge modes | -0.0363 | -0.0302 | -0.0192 | 0.0055 |
 
 **Loop classification.** Each seed used 180 source examples for training. Each mesh supplied 160 fresh test trajectories, 40 per class. Across the three held-out meshes, all 480 generated labels agreed with the signed winding after harmonic projection. Across training seeds, HodgeSNN exceeded the other learned backbones on every mesh. Its mean accuracy fell from 93.96% on the source control to 77.50% across the held-out meshes. These results apply to the four winding classes with consistent hole identities across meshes.
 
-**Flow completion.** Each seed used 150 complete source flows for supervision. Each mesh supplied 60 fresh balanced flows with 40% of edges hidden and observation noise at 3% of the signal standard deviation. The low-Hodge control uses the target geometry and fits coefficients to visible edges alone. Its 32 modes minimized error among 8, 16, 32 and 64 modes on 40 independent source validation flows. HodgeSNN exceeds this control on each held-out mesh. A separate control with the simulator's known generating basis (10 gradient, 10 dual-face curl and two harmonic directions) attains R² above 0.9998 on all three. That control quantifies the advantage of knowing how these flows were synthesized. The earlier training-flow SVD lives in the source edge coordinates. [Protocol and runnable code](scripts/evaluate_mesh_transfer.py) · [Predictions, per-signal errors and mesh specifications](results/mesh_transfer.json)
+**Flow completion: smooth 22-mode regime vs. full-rank localized vortex regime.** In the smooth low-frequency benchmark (Panel b), each mesh supplied 60 balanced flows with 40% of edges hidden and 3% observation noise; while HodgeSNN (`0.9063–0.9397`) outperformed 32 target low-Hodge modes (`0.6209–0.7046`), knowing the exact 22-dimensional synthetic generating basis achieved $`R^2 \gt 0.9998`$. To test genuine local simplicial message passing outside a fixed low-dimensional subspace (Panel c), we also evaluated **spatially localized multi-vortex + vertex-dipole + harmonic flows** passed through odd saturating edge permeability ($`\tilde{f} \propto \tanh(1.35 f) + 0.45 f`$, effective numerical rank `160–164` across 180 training draws). Because localized eddies vary across all faces and vertices, global low-Hodge spectral completion collapsed on every mesh ($`R^2 \in [-0.0363, 0.0055]`$), and source-mesh training SVD (`0.8466` on source) cannot transfer across meshes of differing edge counts (`212`, `398`, `474`). Frozen **HodgeSNN** transferred directly to all three unseen meshes with $`R^2`$ of **0.7801–0.8556**, more than doubling isotropic $`L_1`$ (`0.2910–0.3758`) and node-potential GCN (`0.0971–0.1242`). [Protocol and runnable code](scripts/evaluate_mesh_transfer.py) · [Predictions, per-signal errors and mesh specifications](results/mesh_transfer.json)
 
 ### Table 2: Algebraic Topology, Helmholtz-Hodge Precision & Contagion Bifurcation Diagnostics
 
