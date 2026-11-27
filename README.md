@@ -1,264 +1,112 @@
 # HigherOrder-Simplicial-Lab
 
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-3776AB.svg)](https://www.python.org/)
-[![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C.svg)](https://pytorch.org/)
-[![Tests](https://img.shields.io/badge/tests-pytest-blue.svg)](tests/test_simplicial.py)
-[![License: MIT](https://img.shields.io/badge/License-MIT-0f766e.svg)](LICENSE)
+Edge flows on triangulated surfaces and higher-order networks decompose orthogonally into irrotational gradients, divergence-free curls, and cavity-circulating harmonic modes. Whether a Hodge convolutional network outperforms simpler linear or graph-based estimators depends on which of those subspaces carries the target signal and whether the generating subspace is low-dimensional or spatially localized. This repository evaluates discrete Helmholtz–Hodge operators, orientation-equivariant simplicial message passing, matched tied-$`L_1`$ controls, and 2-simplex contagion dynamics across planar punctured meshes.
 
-How much of loop recognition transfers to a new mesh? On three unseen two-hole meshes, a nearest-centroid classifier using two harmonic coordinates recognized **480/480 synthetic loops**. A Hodge neural network averaged **77.50%** on those same loops. The classes encode signed windings around the holes. Aligning the coordinates requires the known hole correspondence, and harmonic projection removes the simulated gradient and curl noise. [Per-mesh scores and predictions](results/mesh_transfer.json)
+## 1. Discrete Hodge operators and orientation-equivariant filters
 
-The repository also evaluates missing-edge flow reconstruction, Hodge decomposition and higher-order dynamics on oriented simplicial complexes.
+For an oriented 2-simplicial complex $`\mathcal{K} = (\mathcal{V}, \mathcal{E}, \mathcal{T})`$ with signed boundary matrices $`B_1 \in \{-1, 0, +1\}^{N_0 \times N_1}`$ and $`B_2 \in \{-1, 0, +1\}^{N_1 \times N_2}`$, the chain identity $`B_1 B_2 = 0`$ implies $`L_{1,\mathrm{down}} L_{1,\mathrm{up}} = 0`$ for
+
+```math
+L_0 = B_1 B_1^\top, \qquad L_1 = \underbrace{B_1^\top B_1}_{L_{1,\mathrm{down}}} + \underbrace{B_2 B_2^\top}_{L_{1,\mathrm{up}}}, \qquad \mathbb{R}^{N_1} = \mathrm{im}(B_1^\top) \oplus \mathrm{im}(B_2) \oplus \ker(L_1).
+```
+
+On the reference two-hole complex ($`N_0 = 103`$, $`N_1 = 244`$, $`N_2 = 140`$, $`\beta_0 = 1`$, $`\beta_1 = 2`$; `simplicial_lab/hodge.py`), decomposing $`f = f_{\mathrm{grad}} + f_{\mathrm{curl}} + f_{\mathrm{harm}}`$ yields maximum pairwise inner-product error $`5.33 \times 10^{-16}`$, Parseval residual $`0.0`$, $`\lVert B_2^\top f_{\mathrm{grad}} \rVert_\infty = 1.39 \times 10^{-17}`$, and $`\lVert B_1 f_{\mathrm{curl}} \rVert_\infty = 5.55 \times 10^{-17}`$ (`results/benchmark_summary.json`).
+
+![Discrete Helmholtz–Hodge decomposition on the 244-edge two-hole complex](assets/helmholtz_hodge_decomposition.png)
+
+Each layer of `HodgeSimplicialNN` (`simplicial_lab/models.py`) applies separate bias-free polynomial filters to normalized $`\hat{L}_{1,\mathrm{down}}`$ and $`\hat{L}_{1,\mathrm{up}}`$ with odd $`\tanh`$ activations and a harmonic readout $`U_{\mathrm{harm}} U_{\mathrm{harm}}^\top`$:
+
+```math
+H^{(l+1)} = H^{(l)} + \tanh\!\left( H^{(l)} W_0^{(l)} + (M \odot H^{(l)}) W_{\mathrm{obs}}^{(l)} + \sum_{k=1}^K \hat{L}_{1,\mathrm{down}}^k H^{(l)} W_{\mathrm{down},k}^{(l)} + \sum_{k=1}^K \hat{L}_{1,\mathrm{up}}^k H^{(l)} W_{\mathrm{up},k}^{(l)} \right).
+```
+
+Under any diagonal edge-orientation gauge $`D = \mathrm{diag}(\pm 1)`$ transforming $`(x, B_1, B_2) \mapsto (Dx, B_1 D, D B_2)`$, the edge prediction transforms covariantly as $`D \hat{y}`$ (maximum discrepancy $`6.11 \times 10^{-16}`$ in `float64` and $`0.0`$ in `float32`).
 
 ---
 
-## Visual Highlights & Key Empirical Findings
+## 2. Three empirical regimes: where analytical and linear baselines win versus where decoupled Hodge filtering helps
 
-### 1. Exact Orthogonal Helmholtz-Hodge Decomposition on Punctured Manifolds
+### 2.1 Homology loop classification across unseen meshes (`Harmonic Centroid` > `HodgeSimplicialNN`)
 
-![Helmholtz-Hodge Decomposition](assets/helmholtz_hodge_decomposition.png)
+Training on a $`13 \times 9`$ two-hole source mesh (`244` edges, three seeds `42`, `101`, `202`) and evaluating frozen weights on three unseen two-hole meshes (`coarse` `212` edges, `shifted` `398` edges, `fine` `474` edges; `160` fresh test loops per mesh = `480` held-out loops, `scripts/evaluate_mesh_transfer.py`) separates global homology from learned message passing:
 
-On our 2-hole planar punctured simplicial complex ($`N_{0} = 103`$, $`N_{1} = 244`$, $`N_{2} = 140`$, Betti numbers $`\beta_{0} = 1, \beta_{1} = 2`$), any edge 1-cochain $`f \in \mathbb{R}^{N_{1}}`$ splits uniquely into curl-free gradient, divergence-free rotational curl, and cavity-circulating harmonic flows with **machine-precision orthogonality** ($`\max \lvert \langle f_{a}, f_{b} \rangle \rvert = 5.33 \times 10^{-16}`$) and **Parseval energy additivity to floating-point precision** ($`\lvert \lVert f \rVert_{2}^{2} - \sum_{k} \lVert f_{k} \rVert_{2}^{2} \rvert = 0.0`$).
+| Method | Source (`244` edges) | Coarse (`212` edges) | Shifted (`398` edges) | Fine (`474` edges) | Held-out mean (`480` loops) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `Harmonic Centroid` (2 coordinates) | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% (480/480) |
+| `HodgeSimplicialNN` | 93.96% | 85.42% | 72.08% | 75.00% | 77.50% |
+| `EdgeLineGraphGCN` (unsigned LG / $`L_1`$) | 58.75% | 52.08% | 35.21% | 42.29% | 43.19% |
+| `EdgeMLP` (cavity pooling only) | 54.38% | 46.67% | 34.38% | 36.46% | 39.17% |
+| `NodeGCN` ($`L_0`$ gradient difference) | 24.38% | 26.04% | 28.75% | 25.62% | 26.81% |
 
-### 2. Higher-Order Simplicial Neural Networks vs. Pairwise & Isotropic Baselines
+When ordered hole correspondence is known across meshes, projecting noisy edge trajectories onto the two-dimensional harmonic basis $`\ker(L_1)`$ eliminates simulated gradient and curl perturbations directly and classifies all **480/480** held-out loops (`+22.50` percentage points over `HodgeSimplicialNN`, 95% paired bootstrap CI `19.44–25.63`, exact McNemar Holm-adjusted $`p \lt 10^{-30}`$).
 
-![Hodge-SNN Benchmark](assets/hodge_snn_benchmark.png)
+### 2.2 Low-mode synthetic flows versus full-rank localized vortices (`40%` missing edges)
 
-The node-potential baseline reconstructs edge signals through $`B_1^\top \hat{\phi}`$, so its output lies in the gradient subspace. The Hodge network handles gradient, curl and harmonic components separately. At 40% missing edges it achieves $`R^2`$ of 0.9309–0.9767 on the five synthetic flow settings. A linear subspace fit to the same complete training flows recovers the missing entries with $`R^2`$ of **0.99983–0.99993**. The synthetic generator confines each regime to 10–22 independent directions. [Linear control results](results/linear_imputation_control.json)
+In the original same-mesh benchmark (`results/linear_imputation_control.json`), synthetic flows lie in a 10-to-22-mode subspace. Fitting an empirical SVD basis to the 150 complete training flows recovers missing entries with $`R^2 = 0.99983\text{--}0.99993`$, exceeding `HodgeSimplicialNN` (`0.9309–0.9767`). Across meshes of unequal edge counts (`212`, `398`, `474`) where a fixed-dimension source SVD cannot transfer, behavior splits between smooth low-mode flows and full-rank localized vortices (`effective rank 160–164` with odd saturation $`\tanh(1.35 f) + 0.45 f`$):
 
-On the original two-hole mesh, training on tight loops and testing on wider, noisier loops gives **94.44% ± 1.04 percentage points** for the Hodge network. A nearest-centroid classifier using two harmonic coordinates scores **100%** on all three splits. In a separate frozen-model experiment on three unseen meshes, the Hodge network averages **77.50%** across meshes and training seeds. The harmonic classifier recovers all **480 of 480** held-out loops using the known, ordered hole centers to align coordinates. The four classes have distinct signed windings, and the synthetic noise lies in gradient and curl directions removed by the harmonic projection. [Cross-mesh predictions and scores](results/mesh_transfer.json)
-
-### 3. Explosive First-Order Phase Transitions & Bistable Hysteresis in Simplicial Contagion
-
-![Simplicial Phase Transition](assets/simplicial_phase_transition.png)
-
-Incorporating synergistic 3-body 2-simplex interactions ($`\lambda_{2} = 2.8 \gt 1`$) transforms classical continuous epidemic/reaction onset ($`\lambda_{2} = 0.8 \lt 1`$) into an **explosive discontinuous first-order tipping point** with a wide bistable hysteresis loop ($`\Delta \rho_{\max} = 0.6139`$ across $`\lambda_{1} \in [0.547, 1.000]`$), separating sub-threshold decay from self-sustaining endemic activation across an unstable separatrix $`\rho_{-}^{*}`$.
-
-### 4. Spectral Topology of the 1-Hodge Laplacian Under Cavity Surgery
-
-![Hodge Spectrum Cavity Filling](assets/hodge_spectrum_cavity_filling.png)
-
-As 2-simplices progressively fill open triangular faces of the 1-skeleton, local cycle modes lift off zero one by one ($`\beta_{1}: 142 \to 2`$), stabilizing at an exact topological plateau $`\beta_{1} = \dim \ker(L_{1}) = 2`$ governed by the two macroscopic obstacles—until targeted topological surgery caps Cavity A ($`\beta_{1}: 2 \to 1`$) and Cavity B ($`\beta_{1}: 1 \to 0`$).
-
----
-
-## Mathematical Foundations
-
-### 1. Oriented Simplicial Complexes & Exact Chain Boundaries
-
-An abstract 2-simplicial complex $`\mathcal{K} = (\mathcal{V}, \mathcal{E}, \mathcal{T})`$ consists of $`N_{0}`$ vertices (0-simplices), $`N_{1}`$ canonically oriented edges $`[i, j]`$ ($`i \lt j`$), and $`N_{2}`$ canonically oriented filled triangles $`[i, j, k]`$ ($`i \lt j \lt k`$), closed under taking faces. The signed boundary operators $`B_{1} \in \{-1, 0, +1\}^{N_{0} \times N_{1}}`$ and $`B_{2} \in \{-1, 0, +1\}^{N_{1} \times N_{2}}`$ act on canonical chains via:
-
-```math
-\partial_{1}[i, j] = [j] - [i], \qquad \partial_{2}[i, j, k] = [j, k] - [i, k] + [i, j]
-```
-
-By the fundamental lemma of homological algebra, the boundary of a boundary vanishes identically:
-
-```math
-B_{1} B_{2} = 0 \in \mathbb{R}^{N_{0} \times N_{2}}
-```
-
-### 2. Hodge Laplacians, Betti Numbers & Helmholtz-Hodge Decomposition
-
-Dualizing $`\partial_{1}, \partial_{2}`$ yields the discrete gradient $`\mathrm{grad} = B_{1}^{\top}`$, discrete curl $`\mathrm{curl} = B_{2}^{\top}`$, and negative divergence $`-\mathrm{div} = B_{1}`$. The 0-Laplacian and **1-Hodge Laplacian** take the form:
-
-```math
-L_{0} = B_{1} B_{1}^{\top} \in \mathbb{R}^{N_{0} \times N_{0}}, \qquad L_{1} = \underbrace{B_{1}^{\top} B_{1}}_{L_{1,\mathrm{down}}} + \underbrace{B_{2} B_{2}^{\top}}_{L_{1,\mathrm{up}}} \in \mathbb{R}^{N_{1} \times N_{1}}
-```
-
-Because $`B_{1} B_{2} = 0`$, the lower and upper Hodge operators annihilate each other ($`L_{1,\mathrm{down}} L_{1,\mathrm{up}} = 0`$), inducing the **discrete Orthogonal Helmholtz-Hodge Decomposition** on the 1-cochain space $`C^{1}(\mathcal{K}; \mathbb{R}) \cong \mathbb{R}^{N_{1}}`$:
-
-```math
-\mathbb{R}^{N_{1}} = \mathrm{im}(B_{1}^{\top}) \oplus \mathrm{im}(B_{2}) \oplus \ker(L_{1}), \qquad f = f_{\mathrm{grad}} + f_{\mathrm{curl}} + f_{\mathrm{harm}}
-```
-
-where $`f_{\mathrm{grad}} = B_{1}^{\top} \phi`$ is irrotational ($`B_{2}^{\top} f_{\mathrm{grad}} = 0`$), $`f_{\mathrm{curl}} = B_{2} \psi`$ is divergence-free ($`B_{1} f_{\mathrm{curl}} = 0`$), and $`f_{\mathrm{harm}} \in \ker(B_{1}) \cap \ker(B_{2}^{\top}) = \ker(L_{1})`$ encodes global topological circulation around 1-dimensional holes, with dimension equal to the first Betti number:
-
-```math
-\beta_{0} = N_{0} - \mathrm{rank}(B_{1}) = \dim \ker(L_{0}), \qquad \beta_{1} = N_{1} - \mathrm{rank}(B_{1}) - \mathrm{rank}(B_{2}) = \dim \ker(L_{1})
-```
-
-### 3. Orientation-Equivariant Hodge Simplicial Neural Networks (`HodgeSimplicialNN`)
-
-To respect cochain physics and decoupled Hodge subspaces, each layer of `HodgeSimplicialNN` applies separate polynomial spectral filters over normalized $`\hat{L}_{1,\mathrm{down}}`$ and $`\hat{L}_{1,\mathrm{up}}`$ alongside bias-free linear maps and odd activation $`\sigma(z) = \tanh(z)`$:
-
-```math
-H^{(l+1)} = H^{(l)} + \tanh\!\left( H^{(l)} W_{0}^{(l)} + (M \odot H^{(l)}) W_{\mathrm{obs}}^{(l)} + \sum_{k=1}^{K} \hat{L}_{1,\mathrm{down}}^{k} H^{(l)} W_{\mathrm{down}, k}^{(l)} + \sum_{k=1}^{K} \hat{L}_{1,\mathrm{up}}^{k} H^{(l)} W_{\mathrm{up}, k}^{(l)} \right)
-```
-
-The readout includes the harmonic projector. For a diagonal matrix $`D`$ of independently selected edge signs, transform the input to $`Dx`$, the boundaries to $`B_1D`$ and $`DB_2`$, and keep the observation mask fixed. The edge output transforms by $`D`$. The benchmark reports both the global sign-reversal check and a random local reorientation. The classifier pools absolute magnitudes, RMS magnitudes and pairings with consistently oriented cavity boundaries; its output is invariant to these choices of edge orientation.
-
-### 4. Higher-Order Simplicial Contagion & Synergistic Bifurcations
-
-Following Iacopini et al. (*Nature Communications* 2019), a node $`i`$ on a 2-simplicial complex acquires activation/infection via pairwise edges at rate $`\beta_{1}`$ and via filled 2-simplices $`(i, j, k)`$ at synergistic rate $`\beta_{2}`$ when both $`j`$ and $`k`$ are simultaneously active, recovering at rate $`\mu`$. With rescaled infectivities $`\lambda_{1} = \beta_{1} \langle k_{1} \rangle / \mu`$ and $`\lambda_{2} = \beta_{2} \langle k_{2} \rangle / \mu`$, the homogeneous mean-field density $`\rho(\tau)`$ ($`\tau = \mu t`$) satisfies:
-
-```math
-\frac{d\rho}{d\tau} = -\rho + \lambda_{1} \rho (1 - \rho) + \lambda_{2} \rho^{2} (1 - \rho)
-```
-
-Non-trivial equilibria obey $`\lambda_{2} (\rho^{*})^{2} + (\lambda_{1} - \lambda_{2})\rho^{*} + (1 - \lambda_{1}) = 0`$, yielding:
-
-```math
-\rho_{\pm}^{*} = \frac{(\lambda_{2} - \lambda_{1}) \pm \sqrt{(\lambda_{1} + \lambda_{2})^{2} - 4\lambda_{2}}}{2\lambda_{2}}, \qquad \lambda_{1,c}^{\mathrm{back}} = 2\sqrt{\lambda_{2}} - \lambda_{2} \quad (\lambda_{2} > 1)
-```
-
----
-
-## Quantitative Benchmark Results
-
-The original same-mesh benchmark uses the four neural backbones, a harmonic classifier and five synthetic flow settings. [Summary](results/benchmark_summary.json) · [Table](results/benchmark_table.csv) · [Training-flow subspace control](results/linear_imputation_control.json)
-
-### Table 1 — Imputation of missing edges and same-mesh loop classification
-
-Imputation uses one train/test draw per flow setting, 150 training signals and 60 test signals. Scores use only missing edges. The loop benchmark uses seeds 42, 101 and 202, with 45 training and 30 test observations per class for each seed. Error bars describe variation across those seeds. All four learned classifiers receive the same boundary-cycle pooling, including the edge MLP. The harmonic control uses training labels only to fit its centroids.
-
-| Backbone or control | Gradient R² | Balanced R² | 75% solenoidal R² | Pure solenoidal R² | 75% solenoidal MSE | Loop accuracy, mean ± SD |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| NodeGCN | 0.8465 | 0.4992 | 0.4067 | 0.4716 | 0.5903 | 23.06% ± 1.71 pp |
-| EdgeMLP | -0.0004 | -0.0002 | -0.0001 | 0.0000 | 0.9950 | 55.56% ± 10.42 pp |
-| Isotropic-L1-GCN | 0.6686 | 0.4855 | 0.4304 | 0.3864 | 0.5667 | 59.44% ± 8.56 pp |
-| HodgeSimplicialNN | 0.9767 | 0.9406 | 0.9309 | 0.9689 | 0.0688 | 94.44% ± 1.04 pp |
-| Harmonic centroid | — | — | — | — | — | 100.00% ± 0.00 pp |
-| Training-flow subspace | 0.99993 | 0.99983 | 0.99983 | 0.99992 | 0.000167 | — |
-
-The subspace control fits an SVD to the 150 training targets available to all supervised models. Its numerical rank is set by training-data precision. For each test flow it estimates coefficients using only observed entries and scores the held-out entries. No topology or test targets enter the fit.
-
-### Frozen transfer to three unseen meshes
-
-For each of three seeds (42, 101 and 202), we trained on a 13 × 9 mesh with 244 edges. All learned weights and class centroids were then frozen. On each target, we rebuilt its boundary operators, harmonic projector and pooling from its own geometry. The targets vary in grid dimensions, triangulation seed and hole radius. The shifted and fine meshes also move both holes. They share the same planar lattice family and two named cavities.
-
-![Loop accuracy and missing-edge R-squared by source and held-out mesh](assets/mesh_transfer.png)
-
-The dashed red line separates the source-mesh control from unseen meshes. All four learned classifiers receive the same ordered cavity-boundary pooling. The harmonic centroid uses the ordered target hole centers to orient its two coordinates. Only source labels enter the centroids. Each column uses the same test signals for every method and training seed.
-
-| Metric / method | Source control · 244 edges | Coarse · 212 edges | Shifted · 398 edges | Fine · 474 edges |
+| Flow regime & method | Source (`244`) | Coarse (`212`) | Shifted (`398`) | Fine (`474`) |
 | --- | ---: | ---: | ---: | ---: |
-| Loop accuracy · harmonic centroid | 100% | 100% | 100% | 100% |
-| Loop accuracy · HodgeSNN | 93.96% | 85.42% | 72.08% | 75.00% |
-| Loop accuracy · isotropic L1 | 58.75% | 52.08% | 35.21% | 42.29% |
-| Loop accuracy · edge MLP | 54.38% | 46.67% | 34.38% | 36.46% |
-| Loop accuracy · node GCN | 24.38% | 26.04% | 28.75% | 25.62% |
-| Smooth 22-mode flow $`R^2`$ · HodgeSNN | 0.9256 | 0.9063 | 0.9386 | 0.9397 |
-| Smooth 22-mode flow $`R^2`$ · isotropic L1 | 0.4865 | 0.4465 | 0.5367 | 0.5169 |
-| Smooth 22-mode flow $`R^2`$ · low Hodge modes | 0.6420 | 0.6209 | 0.7007 | 0.7046 |
-| Smooth 22-mode flow $`R^2`$ · known 22-mode basis | 0.9998 | 0.9998 | 0.9999 | 0.9999 |
-| **Full-rank localized vortex $`R^2`$ · HodgeSNN** | **0.8171** | **0.7801** | **0.8556** | **0.8514** |
-| Full-rank localized vortex $`R^2`$ · isotropic L1 | 0.3361 | 0.2910 | 0.3750 | 0.3758 |
-| Full-rank localized vortex $`R^2`$ · node GCN | 0.1080 | 0.0971 | 0.1242 | 0.1185 |
-| Full-rank localized vortex $`R^2`$ · low Hodge modes | -0.0363 | -0.0302 | -0.0192 | 0.0055 |
+| Smooth 22-mode $`R^2`$ · Known 22-mode basis | 0.9998 | 0.9998 | 0.9999 | 0.9999 |
+| Smooth 22-mode $`R^2`$ · `HodgeSimplicialNN` | 0.9256 | 0.9063 | 0.9386 | 0.9397 |
+| Smooth 22-mode $`R^2`$ · 32 target low Hodge modes | 0.6420 | 0.6209 | 0.7007 | 0.7046 |
+| Localized vortex $`R^2`$ · `HodgeSimplicialNN` | 0.8171 | 0.7801 | 0.8556 | 0.8514 |
+| Localized vortex $`R^2`$ · `EdgeLineGraphGCN` | 0.3361 | 0.2910 | 0.3750 | 0.3758 |
+| Localized vortex $`R^2`$ · `NodeGCN` ($`\mathrm{im}(B_1^\top)`$) | 0.1080 | 0.0971 | 0.1242 | 0.1185 |
+| Localized vortex $`R^2`$ · 32 target low Hodge modes | -0.0363 | -0.0302 | -0.0192 | 0.0055 |
 
-**Loop classification.** Each seed used 180 source examples for training. Each mesh supplied 160 fresh test trajectories, 40 per class. Across the three held-out meshes, all 480 generated labels agreed with the signed winding after harmonic projection. Across training seeds, HodgeSNN exceeded the other learned backbones on every mesh. Its mean accuracy fell from 93.96% on the source control to 77.50% across the held-out meshes. These results apply to the four winding classes with consistent hole identities across meshes.
+On localized eddies, global low-Hodge spectral completion collapses ($`R^2 \in [-0.036, 0.006]`$), and frozen `HodgeSimplicialNN` reduces per-signal missing-edge MSE across the 180 held-out test signals by `0.481` (`95%` CI `0.464–0.499`, Holm-adjusted $`p \lt 10^{-30}`$) relative to `EdgeLineGraphGCN` and by `0.843` (`95%` CI `0.820–0.867`, Holm-adjusted $`p \lt 10^{-30}`$) relative to 32-mode spectral completion.
 
-**Flow completion: smooth 22-mode regime vs. full-rank localized vortex regime.** In the smooth low-frequency benchmark (Panel b), each mesh supplied 60 balanced flows with 40% of edges hidden and 3% observation noise; while HodgeSNN (`0.9063–0.9397`) outperformed 32 target low-Hodge modes (`0.6209–0.7046`), knowing the exact 22-dimensional synthetic generating basis achieved $`R^2 \gt 0.9998`$. To test genuine local simplicial message passing outside a fixed low-dimensional subspace (Panel c), we also evaluated **spatially localized multi-vortex + vertex-dipole + harmonic flows** passed through odd saturating edge permeability ($`\tilde{f} \propto \tanh(1.35 f) + 0.45 f`$, effective numerical rank `160–164` across 180 training draws). Because localized eddies vary across all faces and vertices, global low-Hodge spectral completion collapsed on every mesh ($`R^2 \in [-0.0363, 0.0055]`$), and source-mesh training SVD (`0.8466` on source) cannot transfer across meshes of differing edge counts (`212`, `398`, `474`). Frozen **HodgeSNN** transferred directly to all three unseen meshes with $`R^2`$ of **0.7801–0.8556**, more than doubling isotropic $`L_1`$ (`0.2910–0.3758`) and node-potential GCN (`0.0971–0.1242`). [Protocol and runnable code](scripts/evaluate_mesh_transfer.py) · [Predictions, per-signal errors and mesh specifications](results/mesh_transfer.json)
+![Cross-mesh loop classification, smooth 22-mode flows, and localized vortex completion](assets/mesh_transfer.png)
 
-### Table 2: Algebraic Topology, Helmholtz-Hodge Precision & Contagion Bifurcation Diagnostics
+### 2.3 Architecture-matched `Tied-L1` control (`scripts/evaluate_anisotropic_control.py`)
 
-| Diagnostic / Invariant | Mathematical Quantity | Measured Value |
-| :--- | :--- | :---: |
-| Punctured Complex Simplex Counts | $`(N_{0}, N_{1}, N_{2})`$ and Euler $`\chi = N_{0} - N_{1} + N_{2}`$ | $`(103, 244, 140)`$, $`\chi = -1`$ |
-| Exact Topological Betti Numbers | $`(\beta_{0}, \beta_{1})`$ via SVD & Hodge spectra | $`(1, 2)`$ |
-| Exact Chain Complex Identity | $`\max_{i, p} \lvert (B_{1} B_{2})_{i, p} \rvert`$ | $`0.0`$ (exact) |
-| HHD Pairwise Orthogonality Error | $`\max_{a \neq b} \lvert \langle f_{a}, f_{b} \rangle \rvert`$ | $`5.33 \times 10^{-16}`$ |
-| HHD Parseval Norm Conservation | $`\lvert \lVert f \rVert_{2}^{2} - (\lVert f_{\mathrm{grad}} \rVert_{2}^{2} + \lVert f_{\mathrm{curl}} \rVert_{2}^{2} + \lVert f_{\mathrm{harm}} \rVert_{2}^{2}) \rvert`$ | $`0.0`$ |
-| Discrete Curl-of-Grad / Div-of-Curl | $`\lVert B_{2}^{\top} f_{\mathrm{grad}} \rVert_{\infty}`$ / $`\lVert B_{1} f_{\mathrm{curl}} \rVert_{\infty}`$ | $`1.39 \times 10^{-17}`$ / $`5.55 \times 10^{-17}`$ |
-| Orientation Equivariance Error (`float64`) | $`\max \lvert \mathcal{F}_{\theta}(-x) + \mathcal{F}_{\theta}(x) \rvert`$ | $`0.0`$ (exact) |
-| Harmonic zero-mode residual | Infinity norm of the 1-Hodge Laplacian applied to the harmonic component | 4.55 × 10⁻¹⁵ |
-| Random local edge-orientation flips | Maximum equivariance residual, float64 | 6.11 × 10⁻¹⁶ |
-| Filtration Betti Trajectory | 1-Skeleton $`\to`$ Mesh Filled $`\to`$ Cap A $`\to`$ Cap B | $`142 \to 2 \to 1 \to 0`$ |
-| Trimolecular Reaction Complex ($`\mathrm{O}_{3} + \mathrm{OH}^{\bullet} + P`$) | $`(N_{0}, N_{1}, N_{2})`$ and $`(\beta_{0}, \beta_{1})`$ | $`(12, 33, 8)`$ and $`(1, 14)`$ |
-| Simplicial Contagion Hysteresis ($`\lambda_{2} = 2.8`$) | $`\max_{\lambda_{1}} (\rho_{\mathrm{backward}} - \rho_{\mathrm{forward}})`$ at $`\lambda_{1} = 0.879`$ | $`0.6139`$ (1st-order explosive) |
-| Pairwise-Dominated Sweep ($`\lambda_{2} = 0.8`$) | $`\max_{\lambda_{1}} (\rho_{\mathrm{backward}} - \rho_{\mathrm{forward}})`$ | $`0.0336`$ (2nd-order continuous) |
+Because `EdgeLineGraphGCN` mixes `75%` unsigned line-graph adjacency with `25%` $`L_1`$ and omits mask gating and harmonic skip paths, `scripts/evaluate_anisotropic_control.py` evaluates a strictly architecture- and parameter-matched orientation-equivariant `TiedL1SimplicialNN` (`27,320` parameters vs. `25,696` for `HodgeSimplicialNN`) across 10 paired random seeds on the source (`244` edges) and unseen shifted (`398` edges) meshes (`results/anisotropic_constitutive_control.json`):
+
+| Task (`10` paired seeds) | `HodgeSimplicialNN` (`25.7k`) | `TiedL1SimplicialNN` (`27.3k`) | `Unsigned-LG GCN` (`18.5k`) | `Hodge` minus `Tied-L1` (95% CI) | Holm *p* |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Localized imputation, source (`244`) | 0.7098 ± 0.016 | 0.2718 ± 0.021 | 0.1795 ± 0.023 | +0.438 [+0.427, +0.450] | 0.0117 |
+| Localized imputation, unseen (`398`) | 0.7484 ± 0.009 | 0.2851 ± 0.011 | 0.1735 ± 0.024 | +0.463 [+0.459, +0.467] | 0.0117 |
+| Opposing grad/curl operator, source (`244`) | 0.8509 ± 0.015 | 0.4538 ± 0.022 | 0.2982 ± 0.031 | +0.397 [+0.385, +0.408] | 0.0117 |
+| Opposing grad/curl operator, unseen (`398`) | 0.8670 ± 0.010 | 0.4999 ± 0.016 | 0.3161 ± 0.028 | +0.367 [+0.358, +0.377] | 0.0117 |
+
+Restoring gauge-equivariant signed $`L_1`$, mask gating, and harmonic projection raises unseen-mesh $`R^2`$ from `0.1735` (`Unsigned-LG GCN`) to `0.2851` (`TiedL1SimplicialNN`, `+0.112`, Holm-adjusted $`p = 0.0117`$). Nevertheless, decoupling $`\hat{L}_{1,\mathrm{down}}`$ from $`\hat{L}_{1,\mathrm{up}}`$ adds a further `+0.463` on localized missing-edge imputation and `+0.367` under opposing gradient/curl conductivities ($`+1.15 f_{\mathrm{grad}} - 0.95 f_{\mathrm{curl}}`$), because binary edge masking introduces artificial vertex divergence and triangle curl that cannot be filtered independently by any single polynomial $`p(L_1)`$.
+
+![Low-mode imputation with SVD control and 10-seed architecture-matched Tied-L1 ablation](assets/hodge_snn_benchmark.png)
 
 ---
 
-## Repository Architecture
+## 3. Simplicial contagion bistability and Hodge spectral filtration
 
-```text
-HigherOrder-Simplicial-Lab/
-├── simplicial_lab/
-│   ├── __init__.py          # Public API with PEP-562 lazy PyTorch loading
-│   ├── complexes.py         # Oriented SimplicialComplex, exact B1/B2, punctured/RSC/chemical generators
-│   ├── hodge.py             # L0/L1 Hodge Laplacians, Betti numbers, harmonic basis, exact HHD & filtration
-│   ├── models.py            # HodgeSimplicialNN, NodeGCN, Isotropic-L1-GCN, EdgeMLP & benchmark tasks
-│   └── contagion.py         # Simplicial Contagion ODE, stochastic Markovian SIS & hysteresis sweeps
-├── scripts/
-│   ├── run_benchmarks.py    # Same-mesh metrics and four figures
-│   ├── evaluate_linear_imputation.py  # Same-mesh training-flow subspace control
-│   └── evaluate_mesh_transfer.py      # Frozen-model cross-mesh benchmark and figure
-├── tests/
-│   └── test_simplicial.py   # Rigorous algebraic, spectral, equivariance & dynamical pytest suite
-├── assets/                  # Generated 300-DPI visual diagnostics
-├── results/                 # Same-mesh metrics, linear control and cross-mesh predictions
-├── app.py                   # 3-tab interactive Streamlit workbench
-├── pyproject.toml           # Modern PEP-621 package configuration
-├── requirements.txt         #Pinned minimum scientific & deep learning dependencies
-└── LICENSE                  # MIT License
-```
+On a 180-node random 2-simplicial complex ($`\langle k_1 \rangle = 17.4`$, $`\langle k_2 \rangle = 6.0`$; Iacopini et al., 2019), pairwise-dominated contagion ($`\lambda_2 = 0.8 \lt 1`$) exhibits a continuous onset at $`\lambda_1 = 1`$, whereas strong 2-simplex synergy ($`\lambda_2 = 2.8 \gt 1`$) creates a saddle-node bifurcation at $`\lambda_{1,c}^{\mathrm{back}} = 2\sqrt{\lambda_2} - \lambda_2 = 0.547`$ with hysteresis width $`\Delta\rho_{\max} = 0.614`$. Under progressive 2-simplex filtration of the punctured complex, $`\beta_1 = \dim\ker(L_1)`$ drops from `142` (1-skeleton cycles) to an exact plateau at `2` once non-cavity faces are filled, and steps `2 -> 1 -> 0` only when Holes A and B are capped.
+
+![Simplicial contagion hysteresis and basin splitting](assets/simplicial_phase_transition.png)
+
+![Betti-1 filtration plateau and lifting of harmonic zero modes](assets/hodge_spectrum_cavity_filling.png)
 
 ---
 
-## Quickstart & Reproducibility
-
-### 1. Installation
+## 4. Reproducibility
 
 ```bash
 pip install -e ".[dev]"
-```
+pytest -q
 
-### 2. Run Unit Test Suite
-
-```bash
-pytest -v
-```
-
-### 3. Reproduce All Benchmarks & 300-DPI Figures
-
-```bash
+# Re-run same-mesh benchmarks, cross-mesh transfer, and 10-seed matched Tied-L1 controls
 python scripts/run_benchmarks.py
-python scripts/evaluate_linear_imputation.py
-python scripts/evaluate_mesh_transfer.py --device cpu
+python scripts/evaluate_mesh_transfer.py
+python scripts/evaluate_anisotropic_control.py
+
+# Regenerate all five 600-DPI figures with programmatic QA checks
+python scripts/generate_figures.py
 ```
 
-The recorded mesh-transfer run used `--device cuda` with PyTorch 2.7.1 and NumPy 2.2.6. Both device settings use the same samples, splits and training budget.
+## References
 
-### 4. Launch Interactive Streamlit Workbench
+1. Holm, S. (1979). A simple sequentially rejective multiple test procedure. *Scandinavian Journal of Statistics*, 6(2), 65–70.
+2. Iacopini, I., Petri, G., Barrat, A., & Latora, V. (2019). Simplicial models of social contagion. *Nature Communications*, 10, 2485.
+3. Lim, L.-H. (2020). Hodge Laplacians on graphs. *SIAM Review*, 62(3), 685–715.
+4. Schaub, M. T., Benson, A. R., Horn, P., Lippner, G., & Jadbabaie, A. (2020). Random walks on simplicial complexes and the normalized Hodge 1-Laplacian. *SIAM Review*, 62(2), 353–391.
 
-```bash
-streamlit run app.py
-```
+## License
 
-### 5. Minimal Python API Example
-
-```python
-from simplicial_lab import (
-    planar_punctured_complex,
-    compute_betti_numbers,
-    synthesize_hodge_flow,
-    helmholtz_hodge_decomposition,
-    run_hysteresis_sweep,
-)
-
-# 1. Build 2-hole planar simplicial complex and verify exact chain complex identity
-sc = planar_punctured_complex(seed=42)
-assert sc.verify_boundary_identity() == 0.0
-beta_0, beta_1 = compute_betti_numbers(sc)  # (1, 2)
-
-# 2. Orthogonal Helmholtz-Hodge Decomposition f = f_grad + f_curl + f_harm
-flow = synthesize_hodge_flow(sc, grad_weight=1.15, curl_weight=1.0, harm_weight=1.05)
-hhd = helmholtz_hodge_decomposition(sc, flow["f_total"])
-print("Max orthogonality error:", hhd.orthogonality_errors["max"])  # ~5e-16 in the recorded run
-
-# 3. Higher-order simplicial contagion hysteresis loop
-sweep = run_hysteresis_sweep(lambda_2=2.8)
-print("Explosive bistable hysteresis gap:", sweep.max_hysteresis_gap)  # ~0.614
-```
-
----
-
-## Core References
-
-1. Lim, L.-H. (2020). *Hodge Laplacians on Graphs*. SIAM Review, 62(3), 685–715.
-2. Schaub, M. T., Benson, A. R., Horn, P., Lippner, G., & Jadbabaie, A. (2020). *Random Walks on Simplicial Complexes and the Normalized Hodge 1-Laplacian*. SIAM Review, 62(2), 353–391.
-3. Ebli, S., Defferrard, M., & Spreemann, G. (2020). *Simplicial Neural Networks*. NeurIPS Workshop on Topological Data Analysis and Beyond.
-4. Yang, M., Isufi, E., & Leus, G. (2022). *Simplicial Convolutional Neural Networks*. IEEE Transactions on Signal Processing, 70, 959–971.
-5. Iacopini, I., Petri, G., Barrat, A., & Latora, V. (2019). *Simplicial models of social contagion*. Nature Communications, 10, 2485.
-6. Battiston, F., Cencetti, G., Iacopini, I., Latora, V., Lucas, M., Patania, A., Young, J.-G., & Petri, G. (2020). *Networks beyond pairwise interactions: Structure and dynamics*. Physics Reports, 874, 1–92.
+MIT License (`LICENSE`).
